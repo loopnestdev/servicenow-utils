@@ -1,0 +1,6 @@
+# This group is only read by MariaDB servers, not by MySQL.
+[mariadb]
+log_error = %%MARIADB_LOGDIR%%/mariadb.err
+
+# This group is only read by MariaDB-10.6 servers.
+[mariadb-10.6]

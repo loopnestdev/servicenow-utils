@@ -1,0 +1,3 @@
+# Ref: https://mariadb.com/kb/en/securing-connections-for-client-and-server/#enabling-tls-for-mariadb-clients
+[client]
+ssl

@@ -1,0 +1,3 @@
+[xtrabackup]
+user     = %%MARIADB_USER_BACKUP%%
+password = %%MARIADBBACKUPPASS%%

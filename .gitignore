@@ -1,0 +1,63 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+.editorconfig
+CLAUDE.md
+**/CLAUDE.md
+
+# Shell script artifacts
+*.log
+*.tmp
+*.bak
+*.orig
+**/*copy.*
+**/*backup
+**/*.sample
+
+# Credentials & secrets
+*.env
+.env
+.env.*
+!.env.example
+*_credentials.json
+*_service_account.json
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# GCP / gcloud
+.config/gcloud/
+gcloud-service-key.json
+application_default_credentials.json
+
+# Terraform (if used alongside scripts)
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# Output / generated files
+output/
+dist/
+build/
+tmp/
+sample/
