@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.2] — 2026-06-14
+
+### Changed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — DB client package is now conditional on `--db_type`:
+  - `mariadb` (default) installs the `mariadb` client package
+  - `postgresql` installs `postgresql15` instead
+
 ## [v0.1.1] — 2026-06-13
 
 ### Fixed

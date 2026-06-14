@@ -238,12 +238,17 @@ install_deps() {
   dnf remove -y mysql-common 2>/dev/null || true
 
   dnf install -y \
-    mariadb \
     glibc \
     glibc.i686 \
     libgcc \
     libgcc.i686 \
     rng-tools
+
+  if [ "${DB_TYPE}" = "mariadb" ]; then
+    dnf install -y mariadb
+  else
+    dnf install -y postgresql15
+  fi
 
   if [ "${PROXY}" = "haproxy" ]; then
     dnf install -y haproxy
