@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.6] — 2026-06-17
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — PostgreSQL compatibility for DB query functions:
+  - Added `db_query()` helper that dispatches to `mysql` (MariaDB) or `psql`
+    (PostgreSQL) based on `--db_type`, handling SSL, credentials, and
+    header-free output for each engine.
+  - `wait_for_db_init`: uses `db_query()`; PostgreSQL omits the database
+    prefix in the table reference (connected directly to the target DB).
+  - `detect_install_mode`: uses `db_query()`; PostgreSQL counts user tables
+    via `table_catalog = current_database()` instead of `table_schema =
+    '<dbname>'` which is MariaDB-specific.
+  - `insert_glide_war`: uses `db_query()`; PostgreSQL uses
+    `ON CONFLICT DO NOTHING` instead of `INSERT IGNORE`.
+  - All three functions previously hardcoded `--ssl` regardless of
+    `--db_ssl`; now conditional via `db_query()`.
+
 ## [v0.1.5] — 2026-06-15
 
 ### Changed

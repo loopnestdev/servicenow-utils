@@ -508,13 +508,36 @@ install_instance() {
   log "Instance ${seq} (${svc}) started."
 }
 
+db_query() {
+  # Execute a SQL query against the configured DB engine.
+  # Credentials come from /etc/my.cnf.d (MariaDB) or PGPASSWORD env var (PostgreSQL).
+  local query="$1"
+  if [ "${DB_TYPE}" = "postgresql" ]; then
+    local pgssl="disable"
+    [ "${DB_SSL}" = "true" ] && pgssl="require"
+    PGPASSWORD="${DB_PASSWORD}" PGSSLMODE="${pgssl}" \
+      psql --host="${DB_HOST}" --port="${DB_PORT}" --username="${DB_USER}" \
+           --dbname="${DB_NAME}" --tuples-only --no-align \
+           --command="${query}"
+  else
+    local ssl_flag=""
+    [ "${DB_SSL}" = "true" ] && ssl_flag="--ssl"
+    mysql --host="${DB_HOST}" --port="${DB_PORT}" --user="${DB_USER}" \
+      ${ssl_flag} --skip-column-names -e "${query}"
+  fi
+}
+
 wait_for_db_init() {
-  local mysql_cmd="mysql --host=${DB_HOST} --port=${DB_PORT} --user=${DB_USER} --ssl --skip-column-names"
-  local query="SELECT summary_complete_status FROM ${DB_NAME}.sys_upgrade_history ORDER BY upgrade_started DESC LIMIT 1;"
+  local query
+  if [ "${DB_TYPE}" = "postgresql" ]; then
+    query="SELECT summary_complete_status FROM sys_upgrade_history ORDER BY upgrade_started DESC LIMIT 1;"
+  else
+    query="SELECT summary_complete_status FROM ${DB_NAME}.sys_upgrade_history ORDER BY upgrade_started DESC LIMIT 1;"
+  fi
 
   # Idempotency: skip wait if schema initialisation already completed
   local current
-  current=$(${mysql_cmd} -e "${query}" 2>/dev/null || true)
+  current=$(db_query "${query}" 2>/dev/null || true)
   if echo "${current}" | grep -q "complete"; then
     log "DB schema already initialised, skipping wait."
     return 0
@@ -526,7 +549,7 @@ wait_for_db_init() {
   local max_attempts=1620  # 9 hours at 20s intervals
   local result
 
-  until result=$(${mysql_cmd} -e "${query}" 2>&1) && echo "${result}" | grep -q "complete"; do
+  until result=$(db_query "${query}" 2>&1) && echo "${result}" | grep -q "complete"; do
     attempt=$(( attempt + 1 ))
     if [ "${attempt}" -ge "${max_attempts}" ]; then
       die "DB initialisation did not complete after $(( max_attempts * 20 / 3600 )) hours."
@@ -542,21 +565,31 @@ wait_for_db_init() {
 
 insert_glide_war() {
   log "Inserting glide.war version into sys_properties..."
-  mysql --host="${DB_HOST}" --port="${DB_PORT}" --user="${DB_USER}" --ssl \
-    -e "INSERT IGNORE INTO ${DB_NAME}.sys_properties(name,type,is_private,description,value) \
-        VALUES ('glide.war','string',1,'Current version','${APP_VERSION}');"
+  local query
+  if [ "${DB_TYPE}" = "postgresql" ]; then
+    query="INSERT INTO sys_properties(name,type,is_private,description,value)
+           VALUES ('glide.war','string',1,'Current version','${APP_VERSION}')
+           ON CONFLICT DO NOTHING;"
+  else
+    query="INSERT IGNORE INTO ${DB_NAME}.sys_properties(name,type,is_private,description,value)
+           VALUES ('glide.war','string',1,'Current version','${APP_VERSION}');"
+  fi
+  db_query "${query}"
   log "glide.war inserted."
 }
 
 detect_install_mode() {
-  local ssl_flag=""
-  [ "${DB_SSL}" = "true" ] && ssl_flag="--ssl"
+  local query
+  if [ "${DB_TYPE}" = "postgresql" ]; then
+    query="SELECT COUNT(*) FROM information_schema.tables
+           WHERE table_schema NOT IN ('pg_catalog','information_schema')
+           AND table_catalog = current_database();"
+  else
+    query="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';"
+  fi
 
   local result
-  if ! result=$(mysql --host="${DB_HOST}" --port="${DB_PORT}" --user="${DB_USER}" \
-      ${ssl_flag} --skip-column-names \
-      -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';" \
-      2>&1); then
+  if ! result=$(db_query "${query}" 2>&1); then
     die "Cannot connect to DB ${DB_HOST}:${DB_PORT} to detect node role: ${result}"
   fi
 
