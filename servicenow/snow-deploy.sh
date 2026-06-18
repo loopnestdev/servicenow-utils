@@ -353,7 +353,7 @@ write_glide_db_properties() {
 
   cat > "${inst_path}/conf/glide.db.properties" <<EOF
 glide.db.name = ${DB_NAME}
-glide.db.rdbms = mysql
+glide.db.rdbms = $( [ "${DB_TYPE}" = "postgresql" ] && echo "postgresql" || echo "mysql" )
 glide.db.url = ${JDBC_URL}
 glide.db.user = ${DB_USER}
 glide.db.password = ${DB_PASSWORD}
@@ -394,7 +394,7 @@ write_jdk_overrides() {
   case "${jdk_major}" in
     8|11)
       cat > "${inst_path}/conf/overrides.d/51-memory.properties" <<'EOF'
-glide.java.opts.snippet.nodeconfig.mem=-Xms128m -Xmx2048m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=256m -XX:MaxMetaspaceSize=352m
+glide.java.opts.snippet.nodeconfig.mem=-Xms128m -Xmx4096m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=256m -XX:MaxMetaspaceSize=352m
 EOF
       cat > "${inst_path}/conf/overrides.d/93-legacy-jdk.properties" <<'EOF'
 glide.system.property.startup.jdk.io.permissionsUseCanonicalPath=true
@@ -407,7 +407,7 @@ EOF
       ;;
     17)
       cat > "${inst_path}/conf/overrides.d/51-memory.properties" <<'EOF'
-glide.java.opts.snippet.nodeconfig.mem=-Xms1024m -Xmx2048m -XX:MaxMetaspaceSize=640m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=256m
+glide.java.opts.snippet.nodeconfig.mem=-Xms1024m -Xmx4096m -XX:MaxMetaspaceSize=640m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=256m
 EOF
       cat > "${inst_path}/conf/overrides.d/92-access.properties" <<'EOF'
 # https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB1362432

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.7] — 2026-06-18
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — two correctness fixes:
+  - `glide.db.rdbms` in `glide.db.properties` was hardcoded to `mysql`
+    regardless of `--db_type`; now correctly writes `postgresql` when
+    `--db_type=postgresql` and `mysql` otherwise.
+  - JVM heap ceiling raised from 2 GB to 4 GB (`-Xmx4096m`) in
+    `51-memory.properties` for both JDK 8/11 and JDK 17 override blocks.
+
 ## [v0.1.6] — 2026-06-17
 
 ### Fixed
