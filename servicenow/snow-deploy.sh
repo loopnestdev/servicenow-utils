@@ -596,15 +596,14 @@ wait_for_db_init() {
 
   local attempt=0
   local max_attempts=1620  # 9 hours at 20s intervals
-  local result
 
-  until result=$(db_query "${query}" 2>&1) && echo "${result}" | grep -q "complete"; do
+  until db_query "${query}" 2>/dev/null | grep -q "complete"; do
     attempt=$(( attempt + 1 ))
     if [ "${attempt}" -ge "${max_attempts}" ]; then
       die "DB initialisation did not complete after $(( max_attempts * 20 / 3600 )) hours."
     fi
     if [ $(( attempt % 90 )) -eq 0 ]; then
-      log "Still waiting for DB init... $(( attempt * 20 / 60 )) min elapsed. Last DB response: ${result}"
+      log "Still waiting for DB init... $(( attempt * 20 / 60 )) min elapsed."
     fi
     sleep 20
   done

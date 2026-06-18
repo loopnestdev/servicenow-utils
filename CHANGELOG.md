@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.10] — 2026-06-18
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — `wait_for_db_init()` no longer logs spurious psql errors
+  while polling. `sys_upgrade_history` does not exist until ServiceNow creates
+  it during schema initialisation; psql errors are now suppressed with
+  `2>/dev/null` and the periodic progress log no longer prints the raw error
+  text.
+
 ## [v0.1.9] — 2026-06-18
 
 ### Fixed
