@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.11] — 2026-06-18
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — unified DB queries for `wait_for_db_init()` and
+  `detect_install_mode()` across both engines. PostgreSQL treats `${DB_NAME}`
+  as the schema name (ServiceNow creates tables in a schema matching the DB
+  name), so `table_schema='${DB_NAME}'` and `${DB_NAME}.sys_upgrade_history`
+  work identically for both MariaDB and PostgreSQL — the per-engine conditionals
+  were removed.
+
 ## [v0.1.10] — 2026-06-18
 
 ### Fixed

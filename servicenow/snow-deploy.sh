@@ -577,12 +577,7 @@ db_query() {
 }
 
 wait_for_db_init() {
-  local query
-  if [ "${DB_TYPE}" = "postgresql" ]; then
-    query="SELECT summary_complete_status FROM sys_upgrade_history ORDER BY upgrade_started DESC LIMIT 1;"
-  else
-    query="SELECT summary_complete_status FROM ${DB_NAME}.sys_upgrade_history ORDER BY upgrade_started DESC LIMIT 1;"
-  fi
+  local query="SELECT summary_complete_status FROM ${DB_NAME}.sys_upgrade_history ORDER BY upgrade_started DESC LIMIT 1;"
 
   # Idempotency: skip wait if schema initialisation already completed
   local current
@@ -627,14 +622,7 @@ insert_glide_war() {
 }
 
 detect_install_mode() {
-  local query
-  if [ "${DB_TYPE}" = "postgresql" ]; then
-    query="SELECT COUNT(*) FROM information_schema.tables
-           WHERE table_schema NOT IN ('pg_catalog','information_schema')
-           AND table_catalog = current_database();"
-  else
-    query="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';"
-  fi
+  local query="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';"
 
   local result
   if ! result=$(db_query "${query}" 2>&1); then
