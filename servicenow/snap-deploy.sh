@@ -735,7 +735,6 @@ frontend stats
   stats                 show-node
   stats                 uri /stats
   stats                 refresh 30s
-  stats                 auth admin:{{ HAPROXYADMINPASS }}
 
 frontend snap-frontend
   bind                  0.0.0.0:${HAPROXY_BIND_PORT} ssl crt /etc/haproxy/snap-server.pem
@@ -839,7 +838,7 @@ verify_haproxy() {
   log "Verifying HAProxy stats endpoint..."
   local attempt=0 max=6
 
-  until curl -sf "http://127.0.0.1:${HAPROXY_STAT_PORT}/stats" >/dev/null 2>&1; do
+  until curl -s "http://127.0.0.1:${HAPROXY_STAT_PORT}/stats" >/dev/null 2>&1; do
     attempt=$(( attempt + 1 ))
     [ "${attempt}" -ge "${max}" ] \
       && die "HAProxy stats not reachable. Check: journalctl -u haproxy"
