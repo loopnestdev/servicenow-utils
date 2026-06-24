@@ -15,7 +15,7 @@ DB_PASSWORD=""
 DB_TYPE="mariadb"
 DB_PORT=""
 DB_SSL="true"
-DB_TLS_MIN="TLSv1.2"
+DB_TLS_MIN="TLSv1.3"
 DB_NAME="snccor"
 INSTANCES=4
 CLUSTER_NAME=""
@@ -25,8 +25,8 @@ PROXY="haproxy"
 SNC_CLEAN_INSTALL="auto"
 SVC_PREFIX="snc"
 SNC_USER="servicenow"
-MEDIA_DIR="/data/snow_media"
-BACKUP_DIR="/mnt/backup"
+MEDIA_DIR="/glide/media"
+BACKUP_DIR="/glide/backup"
 HAPROXY_STATPORT=14567
 SKIP_DEPS="false"
 SKIP_SELINUX="false"
@@ -66,7 +66,7 @@ usage() {
                                   uses verify-ca + DefaultJavaSSLFactory (FIPS-compatible cert
                                   validation + reliable failover). Omit to use require +
                                   NonValidatingFactory (encrypted, no cert validation).
-    --db_tls_min=<TLSv1.2|TLSv1.3> Minimum TLS version for DB SSL   (default: TLSv1.2)
+    --db_tls_min=<TLSv1.2|TLSv1.3> Minimum TLS version for DB SSL   (default: TLSv1.3)
     --instances=<count>           Number of SNC instances per VM     (default: 4)
     --svc_prefix=<prefix>         Systemd service name prefix        (default: snc)
                                   Services will be named <prefix>01, <prefix>02, ...
@@ -74,8 +74,8 @@ usage() {
     --snc_ssl=<true|false>        Enable SSL on proxy frontend       (default: true)
     --port_start=<port>           SNC HTTP port for first instance   (default: 16001)
     --proxy=<haproxy|nginx>       Reverse proxy to install          (default: haproxy)
-    --media_dir=<path>            Directory for downloaded media     (default: /data/snow_media)
-    --backup_dir=<path>           Backup destination directory       (default: /mnt/backup)
+    --media_dir=<path>            Directory for downloaded media     (default: /glide/media)
+    --backup_dir=<path>           Backup destination directory       (default: /glide/backup)
     --skip_deps                   Skip OS dependency installation (offline/pre-provisioned environments)
     --skip_selinux                Skip SELinux port labeling
     --skip_kmf                    Skip KMF keystore configuration

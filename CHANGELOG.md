@@ -387,3 +387,14 @@ All notable changes to this project will be documented in this file.
     sourced from the single shared distribution directory. The `config/`
     directory and `CONFIG_DIR` variable are no longer used and have been
     removed from the script.
+
+## [v0.1.20] — 2026-06-24
+
+### Changed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — updated argument defaults to match target environment:
+  - `--db_tls_min` default changed from `TLSv1.2` to `TLSv1.3`
+  - `--media_dir` default changed from `/data/snow_media` to `/glide/media`
+  - `--backup_dir` default changed from `/mnt/backup` to `/glide/backup`
