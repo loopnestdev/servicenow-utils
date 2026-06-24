@@ -276,6 +276,16 @@ All notable changes to this project will be documented in this file.
 
   Typical offline invocation: `--skip_deps --skip_freshclam`
 
+## [v0.1.15] — 2026-06-24
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — daily cron job to purge SNC pre-compressed log files
+  older than 3 days. Runs at 02:00 via `/etc/cron.d/snccor` targeting
+  `${INSTALL_DIR}/nodes/*/logs/*.gz` across all instances on the VM.
+
 ## [v0.1.14] — 2026-06-24
 
 ### Added

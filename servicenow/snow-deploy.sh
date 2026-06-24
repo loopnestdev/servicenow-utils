@@ -1088,14 +1088,20 @@ EOF
 configure_logrotate() {
   log "Configuring logrotate for ServiceNow logs..."
 
-  cat > /etc/logrotate.d/snccor <<EOF
+  cat > /etc/logrotate.d/snow <<EOF
 ${INSTALL_DIR}/logs/*.log {
-  rotate 30
+  rotate 7
   daily
   compress
   missingok
   dateext
 }
+EOF
+
+  cat >> /etc/cron.d/snow <<EOF
+
+# Delete SNOW post-compressed logs older than 3 days
+0 2 * * * root find ${INSTALL_DIR}/nodes/*/logs -name "*.gz" -mtime +3 -delete 2>/dev/null
 EOF
 
   log "Logrotate configured."
