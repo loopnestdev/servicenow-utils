@@ -351,3 +351,39 @@ All notable changes to this project will be documented in this file.
     exists; always rewrites the properties file.
   - New arguments: `--kmf_password=<password>` (default: `changeit`),
     `--kmf_alias=<alias>` (default: `256bitkey`), `--skip_kmf`.
+
+## [v0.1.19] — 2026-06-24
+
+### Changed
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — PostgreSQL SSL configuration migrated from JDBC URL
+  parameters to ServiceNow-native Glide properties (per `ssldb.md` /
+  KB2253117):
+  - JDBC URL is now bare (`jdbc:postgresql://host:port/db`) — no inline SSL
+    params.
+  - New `write_postgresql_ssl_properties()` function writes
+    `conf/overrides.d/99-jdbc-tls.properties` per instance when
+    `--db_type=postgresql` and `--db_ssl=true`, containing:
+    - `glide.db.postgresql.jdbc.ssl=true`
+    - `glide.db.postgresql.jdbc.sslmode=require`
+    - `glide.db.postgresql.jdbc.sslfactory=org.postgresql.ssl.NonValidatingFactory`
+  - `sslfactory=NonValidatingFactory` is required for reliable reconnection
+    after DB failover behind a GCP Layer 4 LB. Without it, adding
+    `sslrootcert` causes JDBC to upgrade to `verify-ca` validation; under
+    BCFKS/FIPS mode this triggers an SSL handshake failure ("Something
+    unusual") on every reconnect attempt to the new primary.
+  - New `--db_ssl_ca=<file>` argument (filename in `media_dir`) enables
+    production cert validation: when set, writes `verify-ca` +
+    `DefaultJavaSSLFactory` to `99-jdbc-tls.properties` and imports the DB
+    CA cert into the instance's `cacerts.bcfks` truststore (alias `db-ca`).
+    `DefaultJavaSSLFactory` routes validation through the JVM's SSL
+    machinery using the BCFKS provider — FIPS-compatible and reliable on
+    failover. When `--db_ssl_ca` is omitted, falls back to `require` +
+    `NonValidatingFactory` (encrypt only, no cert check).
+  - `host.crt`, `host.key` (proxy SSL certificate/key), and `snow-backup.sh`
+    moved from `config/` to `media_dir`. All deployment artefacts are now
+    sourced from the single shared distribution directory. The `config/`
+    directory and `CONFIG_DIR` variable are no longer used and have been
+    removed from the script.

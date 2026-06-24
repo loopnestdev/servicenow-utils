@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="${SCRIPT_DIR}/config"
+
 
 # ── DEFAULTS ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="/glide"
@@ -33,6 +33,7 @@ SKIP_SELINUX="false"
 SKIP_KMF="false"
 KMF_PASSWORD="changeit"
 KMF_ALIAS="256bitkey"
+DB_SSL_CA=""
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
 usage() {
@@ -61,6 +62,10 @@ usage() {
     --db_port=<port>              Database port (3306 mariadb / 5432 postgresql)
     --db_name=<name>              Database name                      (default: snccor)
     --db_ssl=<true|false>         Enable SSL for DB connection       (default: true)
+    --db_ssl_ca=<file>            DB CA cert filename in media_dir (e.g. cacert.pem). When set,
+                                  uses verify-ca + DefaultJavaSSLFactory (FIPS-compatible cert
+                                  validation + reliable failover). Omit to use require +
+                                  NonValidatingFactory (encrypted, no cert validation).
     --db_tls_min=<TLSv1.2|TLSv1.3> Minimum TLS version for DB SSL   (default: TLSv1.2)
     --instances=<count>           Number of SNC instances per VM     (default: 4)
     --svc_prefix=<prefix>         Systemd service name prefix        (default: snc)
@@ -82,10 +87,9 @@ usage() {
     - ${GLIDEBASE_VERSION}         Glide base tarball
     - <app_version zip>            SNC patch zip
     - <jdk_tarball>                JDK tarball (e.g. jdk8u252-b09.tar.gz)
-
-  Prerequisites in config/ (relative to this script):
-    - snow-backup.sh                 Backup script
+    - snow-backup.sh               Backup script
     - host.crt + host.key          SSL certificate/key (required if --snc_ssl=true)
+    - <db_ssl_ca>                  DB CA cert PEM (required if --db_ssl_ca is set)
 
   Notes:
     - Database must be provisioned and reachable before running this script
@@ -154,6 +158,7 @@ parse_args() {
       --db_port=*)          DB_PORT="${1#*=}" ;;
       --db_name=*)          DB_NAME="${1#*=}" ;;
       --db_ssl=*)           DB_SSL="${1#*=}" ;;
+      --db_ssl_ca=*)        DB_SSL_CA="${1#*=}" ;;
       --db_tls_min=*)       DB_TLS_MIN="${1#*=}" ;;
       --instances=*)        INSTANCES="${1#*=}" ;;
       --svc_prefix=*)       SVC_PREFIX="${1#*=}" ;;
@@ -213,12 +218,16 @@ validate_args() {
     || die "App version zip not found: ${MEDIA_DIR}/${APP_VERSION}"
   [ -f "${MEDIA_DIR}/${JDK_TARBALL}" ] \
     || die "JDK tarball not found: ${MEDIA_DIR}/${JDK_TARBALL}"
-  [ -f "${CONFIG_DIR}/snow-backup.sh" ] \
-    || die "snow-backup.sh not found: ${CONFIG_DIR}/snow-backup.sh"
+  [ -f "${MEDIA_DIR}/snow-backup.sh" ] \
+    || die "snow-backup.sh not found: ${MEDIA_DIR}/snow-backup.sh"
 
   if [ "${SNC_SSL}" = "true" ]; then
-    [ -f "${CONFIG_DIR}/host.crt" ] || die "SSL cert not found: ${CONFIG_DIR}/host.crt"
-    [ -f "${CONFIG_DIR}/host.key" ] || die "SSL key not found: ${CONFIG_DIR}/host.key"
+    [ -f "${MEDIA_DIR}/host.crt" ] || die "SSL cert not found: ${MEDIA_DIR}/host.crt"
+    [ -f "${MEDIA_DIR}/host.key" ] || die "SSL key not found: ${MEDIA_DIR}/host.key"
+  fi
+
+  if [ -n "${DB_SSL_CA}" ]; then
+    [ -f "${MEDIA_DIR}/${DB_SSL_CA}" ] || die "DB CA cert not found: ${MEDIA_DIR}/${DB_SSL_CA}"
   fi
 
   JAVA_DIR="${INSTALL_DIR}/java"
@@ -242,11 +251,7 @@ validate_args() {
       JDBC_URL="jdbc:mariadb://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=false"
     fi
   else
-    if [ "${DB_SSL}" = "true" ]; then
-      JDBC_URL="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=require"
-    else
-      JDBC_URL="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable"
-    fi
+    JDBC_URL="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}"
   fi
 }
 
@@ -378,6 +383,27 @@ glide.db.pooler.connections=64
 glide.db.pooler.connections.max=64
 glide.sys.schedulers = 8
 EOF
+}
+
+write_postgresql_ssl_properties() {
+  local inst_path=$1
+  [ "${DB_TYPE}" != "postgresql" ] && return 0
+  [ "${DB_SSL}" != "true" ] && return 0
+  mkdir -p "${inst_path}/conf/overrides.d"
+
+  if [ -n "${DB_SSL_CA}" ]; then
+    cat > "${inst_path}/conf/overrides.d/99-jdbc-tls.properties" <<EOF
+glide.db.postgresql.jdbc.ssl=true
+glide.db.postgresql.jdbc.sslmode=verify-ca
+glide.db.postgresql.jdbc.sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory
+EOF
+  else
+    cat > "${inst_path}/conf/overrides.d/99-jdbc-tls.properties" <<EOF
+glide.db.postgresql.jdbc.ssl=true
+glide.db.postgresql.jdbc.sslmode=require
+glide.db.postgresql.jdbc.sslfactory=org.postgresql.ssl.NonValidatingFactory
+EOF
+  fi
 }
 
 write_glide_properties() {
@@ -563,6 +589,41 @@ convert_cacerts_bcfks() {
   log "cacerts BCFKS keystore written: ${dest}"
 }
 
+import_db_ssl_ca() {
+  local inst_path=$1
+  [ "${DB_TYPE}" != "postgresql" ] && return 0
+  [ "${DB_SSL}" != "true" ] && return 0
+  [ -z "${DB_SSL_CA}" ] && return 0
+
+  local dest="${inst_path}/conf/overrides.d/cacerts.bcfks"
+  [ -f "${dest}" ] || { log "cacerts.bcfks not found, skipping DB CA import."; return 0; }
+
+  local bc_fips_jar
+  bc_fips_jar=$(find "${inst_path}/lib/jsw" -name "bc-fips-*.jar" 2>/dev/null | sort -V | tail -1)
+  [ -z "${bc_fips_jar}" ] && return 0
+
+  if "${JAVA_DIR}/bin/keytool" -list -alias db-ca \
+      -keystore "${dest}" -storetype BCFKS -storepass changeit \
+      -provider org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider \
+      -providerpath "${bc_fips_jar}" 2>/dev/null; then
+    log "DB CA cert already in cacerts.bcfks, skipping import."
+    return 0
+  fi
+
+  log "Importing DB CA cert into cacerts.bcfks (${MEDIA_DIR}/${DB_SSL_CA})..."
+  "${JAVA_DIR}/bin/keytool" \
+    -importcert \
+    -alias db-ca \
+    -file "${MEDIA_DIR}/${DB_SSL_CA}" \
+    -keystore "${dest}" \
+    -storetype BCFKS \
+    -storepass changeit \
+    -provider org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider \
+    -providerpath "${bc_fips_jar}" \
+    -noprompt
+  log "DB CA cert imported into cacerts.bcfks."
+}
+
 configure_kmf() {
   local inst_path=$1
   local seq=$2
@@ -638,10 +699,12 @@ install_instance() {
     install -n "${node}" -p "${port}"
 
   write_glide_db_properties "${inst}"
-  write_glide_properties     "${inst}" "${port}" "${node}"
-  write_jdk_overrides        "${inst}"
-  convert_cacerts_bcfks      "${inst}"
-  configure_kmf              "${inst}" "${seq}"
+  write_glide_properties          "${inst}" "${port}" "${node}"
+  write_jdk_overrides             "${inst}"
+  write_postgresql_ssl_properties "${inst}"
+  convert_cacerts_bcfks           "${inst}"
+  import_db_ssl_ca                "${inst}"
+  configure_kmf                   "${inst}" "${seq}"
   write_systemd_service      "${svc}"  "${inst}"
 
   chown -R "${SNC_USER}:${SNC_USER}" "${inst}"
@@ -775,7 +838,7 @@ setup_ssl_cert_haproxy() {
   local cfg_path=/etc/haproxy
 
   log "Preparing SSL certificates for HAProxy..."
-  cat "${CONFIG_DIR}/host.crt" "${CONFIG_DIR}/host.key" > "${cfg_path}/host.pem"
+  cat "${MEDIA_DIR}/host.crt" "${MEDIA_DIR}/host.key" > "${cfg_path}/host.pem"
   chmod 600 "${cfg_path}/host.pem"
 
   if [ ! -f "${cfg_path}/dhparam-2048.pem" ]; then
@@ -789,8 +852,8 @@ setup_ssl_cert_nginx() {
 
   log "Preparing SSL certificates for nginx..."
   mkdir -p "${ssl_dir}"
-  cp "${CONFIG_DIR}/host.crt" "${ssl_dir}/host.crt"
-  cp "${CONFIG_DIR}/host.key" "${ssl_dir}/host.key"
+  cp "${MEDIA_DIR}/host.crt" "${ssl_dir}/host.crt"
+  cp "${MEDIA_DIR}/host.key" "${ssl_dir}/host.key"
   chmod 600 "${ssl_dir}/host.key"
 }
 
@@ -1133,7 +1196,7 @@ EOF
 configure_backup() {
   log "Configuring backup..."
 
-  cp "${CONFIG_DIR}/snow-backup.sh" "${INSTALL_DIR}/bin/snow-backup.sh"
+  cp "${MEDIA_DIR}/snow-backup.sh" "${INSTALL_DIR}/bin/snow-backup.sh"
   chown "${SNC_USER}:${SNC_USER}" "${INSTALL_DIR}/bin/snow-backup.sh"
   chmod 755                       "${INSTALL_DIR}/bin/snow-backup.sh"
 
