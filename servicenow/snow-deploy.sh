@@ -29,6 +29,7 @@ MEDIA_DIR="/data/snow_media"
 BACKUP_DIR="/mnt/backup"
 HAPROXY_STATPORT=14567
 SKIP_DEPS="false"
+SKIP_SELINUX="false"
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
 usage() {
@@ -68,6 +69,7 @@ usage() {
     --media_dir=<path>            Directory for downloaded media     (default: /data/snow_media)
     --backup_dir=<path>           Backup destination directory       (default: /mnt/backup)
     --skip_deps                   Skip OS dependency installation (offline/pre-provisioned environments)
+    --skip_selinux                Skip SELinux port labeling
     --help                        Show this help
 
   Prerequisites in --media_dir (default: /data/snow_media):
@@ -82,7 +84,6 @@ usage() {
   Notes:
     - Database must be provisioned and reachable before running this script
     - SSL is terminated at the proxy level; SNC instances run plain HTTP
-    - SELinux configuration is intentionally skipped (handled separately)
     - Run this script sequentially on each VM: first VM first, then the next
 
 EOUSAGE
@@ -158,6 +159,7 @@ parse_args() {
       --media_dir=*)        MEDIA_DIR="${1#*=}" ;;
       --backup_dir=*)       BACKUP_DIR="${1#*=}" ;;
       --skip_deps)          SKIP_DEPS="true" ;;
+      --skip_selinux)       SKIP_SELINUX="true" ;;
       --help)               usage; exit 0 ;;
       *) die "Unknown argument: $1. Run $0 --help for usage." ;;
     esac
@@ -1110,7 +1112,39 @@ EOF
   log "Logrotate configured."
 }
 
-# ── STEP 14: MARIADB MASTER MONITOR ──────────────────────────────────────────
+# ── STEP 14: SELINUX PORT LABELS ─────────────────────────────────────────────
+configure_selinux() {
+  if [ "${SKIP_SELINUX}" = "true" ]; then
+    log "Skipping SELinux configuration (--skip_selinux set)."
+    return 0
+  fi
+
+  if ! command -v getenforce >/dev/null 2>&1 || [ "$(getenforce)" = "Disabled" ]; then
+    return 0
+  fi
+
+  log "SELinux enforcing — labeling ports as http_port_t..."
+
+  label_port() {
+    local port=$1 desc=$2
+    if semanage port -l | grep -E "^http_port_t\s" | grep -qw "${port}"; then
+      log "  TCP/${port} (${desc}) already labeled."
+    else
+      semanage port -a -t http_port_t -p tcp "${port}" \
+        || semanage port -m -t http_port_t -p tcp "${port}"
+      log "  Labeled TCP/${port} as http_port_t (${desc})."
+    fi
+  }
+
+  local seq
+  for seq in $(seq 1 "${INSTANCES}"); do
+    label_port "$(instance_http_port "${seq}")" "SNC instance ${seq}"
+  done
+
+  label_port "${HAPROXY_STATPORT}" "HAProxy stats"
+}
+
+# ── STEP 15: MARIADB MASTER MONITOR ──────────────────────────────────────────
 configure_mariadb_monitoring() {
   [ "${DB_TYPE}" = "mariadb" ] || return 0
 
@@ -1250,6 +1284,7 @@ main() {
   configure_mariadb_client
   install_all_instances
   install_proxy
+  configure_selinux
   configure_backup
   configure_logrotate
   configure_mariadb_monitoring

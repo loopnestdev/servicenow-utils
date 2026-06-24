@@ -315,3 +315,18 @@ All notable changes to this project will be documented in this file.
 - `snow-deploy.sh` — `--skip_deps` flag to bypass `install_deps()`. Useful for
   offline or pre-provisioned environments where OS packages are already
   installed. No value required; presence of the flag sets the behaviour.
+
+## [v0.1.17] — 2026-06-24
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — SELinux port labeling via new `configure_selinux()`
+  function, called after proxy setup:
+  - Labels each SNC instance HTTP port (`PORT_START` … `PORT_START+INSTANCES-1`)
+    and the HAProxy stats port (`HAPROXY_STATPORT`) as `http_port_t`.
+  - Port 443 is skipped — already labeled by default on RHEL.
+  - Silently no-ops when SELinux is `Disabled` or `getenforce` is absent.
+  - `--skip_selinux` flag bypasses the function entirely (offline or
+    Trellix-managed environments).
