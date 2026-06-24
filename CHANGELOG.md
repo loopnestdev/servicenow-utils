@@ -53,7 +53,7 @@ All notable changes to this project will be documented in this file.
   The script is fully idempotent: JDK, Tomcat, SNAP WAR, firewall rules, and
   ClamAV are each skipped on re-run if already present.
 
-## [v0.1.12] — 2026-06-24
+## [v0.1.13] — 2026-06-24
 
 ### Added
 
