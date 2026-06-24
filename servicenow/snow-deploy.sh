@@ -725,8 +725,13 @@ EOF
 
   if [ "${SNC_SSL}" = "true" ]; then
     cat >> "${cfg_path}/haproxy.cfg" <<EOF
-  ssl-default-bind-options force-tlsv12
-  ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+
+  # Hardening: disable older TLS versions and weak ciphers
+  ssl-default-bind-curves         secp384r1:secp521r1:prime256v1
+  ssl-default-bind-options        ssl-min-ver TLSv1.3
+  ssl-default-bind-ciphersuites   TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256
+  ssl-default-server-options      ssl-min-ver TLSv1.3
+  ssl-default-server-ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256
   ssl-dh-param-file     ${cfg_path}/dhparam-2048.pem
 
 EOF
@@ -776,6 +781,17 @@ frontend snc-frontend
   option                httplog
   option                forwardfor
   option                http-server-close
+
+  ### Transaction ID ###
+  unique-id-format %[uuid()]
+  unique-id-header X-Unique-ID
+  log-tag snow
+  log-format {\"timestamp\":\"%tr\",\"application\":\"snow\",\"client_ip\":\"%ci\",\"fe_name\":\"%f\",\"fe_ip\":\"%fi\",\"fe_port\":\"%fp\",\"fe_conn\":\"%fc\",\"be_name\":\"%b\",\"server_name\":\"%s\",\"server_ip\":\"%si\",\"server_port\":\"%sp\",\"srv_conn\":\"%sc\",\"http_method\":\"%HM\",\"http_proto\":\"https\",\"host\":\"%hrl\",\"http_uri\":\"%HU\",\"status_code\":\"%ST\",\"response_time\":\"%Tr\",\"bytes_read\":\"%B\",\"request_cookie\":\"%CC\",\"response_cookie\":\"%CS\",\"termination_state\":\"%ts\",\"active_conn\":\"%ac\",\"retries\":\"%rc\",\"srv_queue\":\"%sq\",\"backend_queue\":\"%bq\",\"x-unique-id\":\"%ID\"}
+
+ acl is_be_healthy path /hello
+    acl backends_down   nbsrv(snc-backend) lt 1
+    http-request return status 503 content-type "text/plain" string "down" if is_be_healthy backends_down
+    http-request return status 200 content-type "text/plain" string "ok"   if is_be_healthy
 
   # Inform backend of original protocol and host
   http-request          set-header X-Forwarded-Host %[req.hdr(host)]
