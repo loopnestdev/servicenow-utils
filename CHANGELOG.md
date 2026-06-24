@@ -410,3 +410,25 @@ All notable changes to this project will be documented in this file.
   - `net.ipv4.tcp_fin_timeout = 30` — reduce FIN_WAIT2 timeout from the 60 s kernel default
   - `net.ipv4.tcp_syn_retries = 3` — limit SYN retransmit attempts before failing a new connection
   Each parameter is written idempotently (updates existing entry or appends) and applied immediately via `sysctl -w`.
+
+## [v0.1.22] — 2026-06-24
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — `configure_fresh_install_db()` function, called on the
+  first node immediately after `insert_glide_war`, covering steps from
+  `fresh_install_db.sh.j2` that were missing from the shell script conversion:
+  - Sets `instance_id` (`sys_properties`) to the MD5 hash of `--cluster_name`
+  - Sets `instance_name` (`sys_properties`) to the value of `--cluster_name`
+  - Clears email credentials: `glide.email.server`, `glide.email.username`,
+    `glide.email.user_password`, `glide.pop3.server`, `glide.pop3.user`,
+    `glide.pop3.password`
+  - Disables email and replication: `glide.email.read.active`,
+    `glide.email.smtp.active`, `glide.db.replicate_master` all set to `false`
+  - Nulls `sys_trigger.system_id` to disassociate scheduler jobs from the
+    source cluster node
+  - Truncates `sys_ha_database`, `sys_cluster_state`, and `sys_status`
+    (each skipped with a log message if the table does not exist in the
+    deployed release)

@@ -796,6 +796,34 @@ insert_glide_war() {
   log "glide.war inserted."
 }
 
+configure_fresh_install_db() {
+  log "Configuring DB for fresh install (instance identity, email, cluster tables)..."
+
+  local instance_id
+  instance_id=$(echo -n "${CLUSTER_NAME}" | md5sum | awk '{print $1}')
+
+  db_query "UPDATE ${DB_NAME}.sys_properties SET value='${instance_id}' WHERE name='instance_id';"
+  db_query "UPDATE ${DB_NAME}.sys_properties SET value='${CLUSTER_NAME}' WHERE name='instance_name';"
+
+  db_query "UPDATE ${DB_NAME}.sys_properties SET value='' WHERE name IN ('glide.email.server','glide.email.username','glide.email.user_password','glide.pop3.server','glide.pop3.user','glide.pop3.password');"
+  db_query "UPDATE ${DB_NAME}.sys_properties SET value='false' WHERE name IN ('glide.email.read.active','glide.email.smtp.active','glide.db.replicate_master');"
+
+  db_query "UPDATE ${DB_NAME}.sys_trigger SET system_id = NULL WHERE system_id IS NOT NULL;"
+
+  local tbl count
+  for tbl in sys_ha_database sys_cluster_state sys_status; do
+    count=$(db_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}' AND table_name='${tbl}';" 2>/dev/null | tr -d '[:space:]')
+    if [ "${count:-0}" -gt 0 ]; then
+      db_query "TRUNCATE TABLE ${DB_NAME}.${tbl};"
+      log "Truncated ${tbl}."
+    else
+      log "Skipping ${tbl} (not present in this release)."
+    fi
+  done
+
+  log "DB fresh install configuration complete."
+}
+
 detect_install_mode() {
   local query="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';"
 
@@ -829,6 +857,7 @@ install_all_instances() {
 
     wait_for_db_init
     insert_glide_war
+    configure_fresh_install_db
 
     if [ "${INSTANCES}" -gt 1 ]; then
       log "DB ready. Deploying remaining $(( INSTANCES - 1 )) instance(s) on this node..."
