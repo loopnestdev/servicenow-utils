@@ -28,6 +28,7 @@ SNC_USER="servicenow"
 MEDIA_DIR="/data/snow_media"
 BACKUP_DIR="/mnt/backup"
 HAPROXY_STATPORT=14567
+SKIP_DEPS="false"
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
 usage() {
@@ -66,6 +67,7 @@ usage() {
     --proxy=<haproxy|nginx>       Reverse proxy to install          (default: haproxy)
     --media_dir=<path>            Directory for downloaded media     (default: /data/snow_media)
     --backup_dir=<path>           Backup destination directory       (default: /mnt/backup)
+    --skip_deps                   Skip OS dependency installation (offline/pre-provisioned environments)
     --help                        Show this help
 
   Prerequisites in --media_dir (default: /data/snow_media):
@@ -155,6 +157,7 @@ parse_args() {
       --proxy=*)            PROXY="${1#*=}" ;;
       --media_dir=*)        MEDIA_DIR="${1#*=}" ;;
       --backup_dir=*)       BACKUP_DIR="${1#*=}" ;;
+      --skip_deps)          SKIP_DEPS="true" ;;
       --help)               usage; exit 0 ;;
       *) die "Unknown argument: $1. Run $0 --help for usage." ;;
     esac
@@ -1238,7 +1241,7 @@ main() {
   log "  Cluster     : ${CLUSTER_NAME}"
   log "============================================================"
 
-  install_deps
+  [ "${SKIP_DEPS}" = "true" ] && log "Skipping OS dependency installation (--skip_deps)." || install_deps
   tune_system
   create_user_group
   create_directories

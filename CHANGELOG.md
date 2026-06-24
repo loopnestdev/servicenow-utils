@@ -276,6 +276,16 @@ All notable changes to this project will be documented in this file.
 
   Typical offline invocation: `--skip_deps --skip_freshclam`
 
+## [v0.1.16] — 2026-06-24
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — `--skip_deps` flag to bypass `install_deps()`. Useful for
+  offline or pre-provisioned environments where OS packages are already
+  installed. No value required; presence of the flag sets the behaviour.
+
 ## [v0.1.15] — 2026-06-24
 
 ### Added
