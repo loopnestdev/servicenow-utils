@@ -34,6 +34,7 @@ PAR_SVC="parexport"
 MEDIA_DIR="/glide/media"
 PAREXPORT_BIN=""                       # .bin installer filename in MEDIA_DIR
 SKIP_DEPS="false"
+SKIP_INSTALL="false"
 SKIP_SELINUX="false"
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
@@ -59,6 +60,8 @@ usage() {
     --par_svc=<name>                PARExport systemd service name        (default: parexport)
     --skip_deps                     Skip dnf package installation         (default: false)
                                     Use in offline environments where packages are pre-installed
+    --skip_install                  Skip .bin installer; assume PARExport RPM already installed
+                                    (--parexport_bin not required when this flag is set)
     --skip_selinux                  Skip SELinux port labeling            (default: false)
     --help                          Show this help
 
@@ -135,6 +138,7 @@ parse_args() {
       --par_user=*)           PAR_USER="${1#*=}"; PAR_GROUP="${1#*=}" ;;
       --par_svc=*)            PAR_SVC="${1#*=}" ;;
       --skip_deps)            SKIP_DEPS="true" ;;
+      --skip_install)         SKIP_INSTALL="true" ;;
       --skip_selinux)         SKIP_SELINUX="true" ;;
       --help)                 usage; exit 0 ;;
       *) die "Unknown argument: $1. Run $0 --help for usage." ;;
@@ -150,9 +154,11 @@ validate_args() {
   esac
 
   if [ "${MODE}" = "parexport" ] || [ "${MODE}" = "all" ]; then
-    [ -n "${PAREXPORT_BIN}" ] || die "--parexport_bin is required for mode=${MODE}."
-    [ -f "${MEDIA_DIR}/${PAREXPORT_BIN}" ] \
-      || die "PARExport installer not found: ${MEDIA_DIR}/${PAREXPORT_BIN}"
+    if [ "${SKIP_INSTALL}" = "false" ]; then
+      [ -n "${PAREXPORT_BIN}" ] || die "--parexport_bin is required for mode=${MODE} (or pass --skip_install if PARExport RPM is already installed)."
+      [ -f "${MEDIA_DIR}/${PAREXPORT_BIN}" ] \
+        || die "PARExport installer not found: ${MEDIA_DIR}/${PAREXPORT_BIN}"
+    fi
   fi
 
   if [ "${MODE}" = "haproxy" ] || [ "${MODE}" = "all" ]; then
@@ -216,6 +222,13 @@ create_user_group() {
 
 # ── STEP 3: INSTALL PAREXPORT ─────────────────────────────────────────────────
 install_parexport() {
+  if [ "${SKIP_INSTALL}" = "true" ]; then
+    log "Skipping .bin installation (--skip_install set; assumes PARExport RPM already installed)."
+    [ -f "${INSTALL_DIR}/par-export-server" ] \
+      || die "PARExport binary not found at ${INSTALL_DIR}/par-export-server. Verify the RPM was installed correctly."
+    return 0
+  fi
+
   if [ -f "${INSTALL_DIR}/par-export-server" ]; then
     log "PARExport already installed at ${INSTALL_DIR}, skipping."
     return 0
@@ -555,7 +568,11 @@ main() {
   log "  Host            : $(hostname -f)"
   log "  Mode            : ${MODE}"
   if [ "${MODE}" = "parexport" ] || [ "${MODE}" = "all" ]; then
-    log "  Installer       : ${PAREXPORT_BIN}"
+    if [ "${SKIP_INSTALL}" = "true" ]; then
+      log "  Installer       : (skipped — RPM pre-installed)"
+    else
+      log "  Installer       : ${PAREXPORT_BIN}"
+    fi
     log "  Install dir     : ${INSTALL_DIR}"
     log "  PARExport port  : 127.0.0.1:${PAR_PORT} (HTTP, TLS terminated at HAProxy)"
   fi

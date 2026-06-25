@@ -519,3 +519,16 @@ All notable changes to this project will be documented in this file.
   temporarily overrides `/etc/redhat-release` with an RHEL 8 string for the
   duration of the install, then restores the original content (or removes the
   file if it did not previously exist) before any error handling.
+
+## [v0.1.28] — 2026-06-25
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `parexport-deploy.sh` — added `--skip_install` flag for environments where
+  PARExport is installed via the vendor RPM package instead of the `.bin`
+  installer. When set, `install_parexport()` skips the binary installer entirely
+  and verifies only that `${INSTALL_DIR}/par-export-server` exists; all other
+  steps (configure, SELinux, firewall, HAProxy, enable, verify) run as normal.
+  `--parexport_bin` is not required when `--skip_install` is passed.
