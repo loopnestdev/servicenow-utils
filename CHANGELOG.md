@@ -544,6 +544,24 @@ All notable changes to this project will be documented in this file.
   matching the values imposed by the vendor RPM package. The flags
   `--install_dir`, `--par_user`, and `--par_svc` have been removed.
 
+## [v0.1.31] — 2026-06-26
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `parexport-deploy.sh` — HAProxy config updated for compatibility with HAProxy
+  1.8 (shipped with RHEL 8). Three 2.x-only directives replaced:
+  - `ssl-default-bind-curves` removed (added in 2.0); `ssl-default-bind-ciphers`
+    used instead of `ssl-default-bind-ciphersuites` for ECDHE-only cipher list.
+  - `ssl-default-bind-options no-sslv3 no-tlsv10 no-tlsv11 no-tlsv12` replaces
+    `ssl-min-ver TLSv1.3` (ssl-min-ver added in 1.9).
+  - `monitor-uri /hello` + `monitor fail if backends_down` replaces
+    `http-request return` (added in 2.1) for the GCP LB health check endpoint.
+  - `option httpchk GET /ping` replaces `http-check send meth GET uri /ping`
+    (http-check send added in 2.2).
+  - Added `tune.ssl.default-dh-param 2048` to suppress DH parameter warning.
+
 ## [v0.1.30] — 2026-06-25
 
 ### Changed

@@ -415,15 +415,13 @@ global
   group                 haproxy
   daemon
   tune.ssl.cachesize    100000
+  tune.ssl.default-dh-param 2048
   tune.maxrewrite       4096
   stats                 socket /var/lib/haproxy/stats
 
-  # Enforce TLS 1.3 — no fallback to earlier versions (KB1632909)
-  ssl-default-bind-curves         secp384r1:secp521r1:prime256v1
-  ssl-default-bind-options        ssl-min-ver TLSv1.3
-  ssl-default-bind-ciphersuites   TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256
-  ssl-default-server-options      ssl-min-ver TLSv1.3
-  ssl-default-server-ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256
+  # Restrict to TLS 1.3 only (KB1632909); ECDHE-only ciphers as TLS 1.2 fallback
+  ssl-default-bind-options   no-sslv3 no-tlsv10 no-tlsv11 no-tlsv12
+  ssl-default-bind-ciphers   ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305
 
 defaults
   mode                  http
@@ -464,11 +462,11 @@ frontend parexport-frontend
   log-tag parexport
   log-format {"timestamp":"%tr","application":"parexport","client_ip":"%ci","fe_name":"%f","fe_port":"%fp","be_name":"%b","server_name":"%s","server_ip":"%si","server_port":"%sp","http_method":"%HM","http_proto":"https","host":"%hrl","http_uri":"%HU","status_code":"%ST","response_time":"%Tr","bytes_read":"%B","termination_state":"%ts","active_conn":"%ac","x-unique-id":"%ID"}
 
-  # GCP Layer-4 LB health check endpoint — returns 200 ok when backends are up
-  acl is_be_healthy       path /hello
+  # GCP Layer-4 LB health check endpoint — HAProxy answers /hello directly
+  # without touching the backend (monitor-uri is available since HAProxy 1.4)
+  monitor-uri             /hello
   acl backends_down       nbsrv(parexport-backend) lt 1
-  http-request return status 503 content-type "text/plain" string "down" if is_be_healthy backends_down
-  http-request return status 200 content-type "text/plain" string "ok"   if is_be_healthy
+  monitor fail            if backends_down
 
   # Inform PARExport of the original request context (KB1632909)
   http-request          set-header X-Forwarded-Host  %[req.hdr(host)]
@@ -494,8 +492,7 @@ backend parexport-backend
   # Session persistence via load balancer cookie (KB1632909)
   cookie                PAREXPORTID insert indirect nocache httponly secure
 
-  option                httpchk
-  http-check send       meth GET uri /ping
+  option                httpchk GET /ping
 
 EOF
 
