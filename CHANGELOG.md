@@ -543,3 +543,17 @@ All notable changes to this project will be documented in this file.
   are now hardcoded constants (`/opt/par-export`, `parexport`, `parexport`)
   matching the values imposed by the vendor RPM package. The flags
   `--install_dir`, `--par_user`, and `--par_svc` have been removed.
+
+## [v0.1.30] — 2026-06-25
+
+### Changed
+
+#### ServiceNow (`servicenow/`)
+
+- `parexport-deploy.sh` — replaced `--skip_install` with an explicit
+  `--parexport_rpm=<file>` install method. Two mutually exclusive methods are
+  now supported: `--parexport_bin` (default; runs the vendor `.bin` installer
+  with the RHEL 8 `/etc/redhat-release` override, works on RHEL 8/9) and
+  `--parexport_rpm` (installs the vendor RPM via `dnf`, for native RHEL 8
+  deployments). Exactly one is required for `mode=parexport` or `mode=all`.
+  Target OS note updated to RHEL 8 or RHEL 9.

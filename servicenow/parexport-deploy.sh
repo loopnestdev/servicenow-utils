@@ -1,7 +1,7 @@
 #!/bin/bash
-# Deploy ServiceNow PARExport Server on RHEL 9.
+# Deploy ServiceNow PARExport Server on RHEL 8 or RHEL 9.
 # Supports three modes:
-#   parexport  – install PARExport via vendor .bin installer (systemd, host-level)
+#   parexport  – install PARExport via vendor .bin or RPM (systemd, host-level)
 #   haproxy    – install/configure HAProxy (TLSv1.3) only
 #   all        – install both on this VM (HAProxy :443 → localhost:PAR_PORT)
 #
@@ -10,9 +10,8 @@
 #     ├─ VM 1: HAProxy :443 (TLSv1.3) → localhost:PAR_PORT (PARExport)
 #     └─ VM 2: HAProxy :443 (TLSv1.3) → localhost:PAR_PORT (PARExport)
 #
-# PARExport is a self-contained service installed by the vendor .bin installer.
-# TLS is terminated at the co-located HAProxy; PARExport itself runs plain HTTP.
-# The GCP L4 LB distributes TCP connections across the VM pool.
+# PARExport install method: --parexport_bin (default, works on RHEL 8/9) or
+# --parexport_rpm (RPM, native RHEL 8). TLS terminated at HAProxy.
 #
 # Reference KBs:
 #   KB1632909 – Load balancer considerations for Self-Hosted Instances
@@ -34,9 +33,9 @@ HAPROXY_STAT_PORT="8000"
 BACKEND_NODES=""                       # resolved to 127.0.0.1:PAR_PORT in validate_args
 MODE="all"
 MEDIA_DIR="/glide/media"
-PAREXPORT_BIN=""                       # .bin installer filename in MEDIA_DIR
+PAREXPORT_BIN=""                       # .bin installer filename in MEDIA_DIR (default method)
+PAREXPORT_RPM=""                       # RPM filename in MEDIA_DIR (alternative method)
 SKIP_DEPS="false"
-SKIP_INSTALL="false"
 SKIP_SELINUX="false"
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
@@ -45,11 +44,13 @@ usage() {
 
   USAGE: $0 [OPTIONS]
 
-  Required (mode=parexport or mode=all):
-    --parexport_bin=<file>          PARExport .bin installer filename in media_dir
+  Required (mode=parexport or mode=all) — choose one install method:
+    --parexport_bin=<file>          PARExport .bin installer filename in media_dir (default)
+    --parexport_rpm=<file>          PARExport RPM filename in media_dir (alternative)
+
+  Required (mode=haproxy or mode=all):
     --cert_file=<file>              TLS certificate filename (PEM) in media_dir
     --key_file=<file>               TLS private key filename (PEM) in media_dir
-                                    (cert/key required for mode=haproxy or mode=all)
 
   Optional:
     --mode=<parexport|haproxy|all>  Deployment mode                      (default: all)
@@ -59,13 +60,19 @@ usage() {
     --haproxy_stat_port=<port>      HAProxy stats page port (loopback)    (default: 8000)
     --skip_deps                     Skip dnf package installation         (default: false)
                                     Use in offline environments where packages are pre-installed
-    --skip_install                  Skip .bin installer; assume PARExport RPM already installed
-                                    (--parexport_bin not required when this flag is set)
     --skip_selinux                  Skip SELinux port labeling            (default: false)
     --help                          Show this help
 
+  Install methods:
+    --parexport_bin   Runs the vendor .bin installer non-interactively. Temporarily
+                      overrides /etc/redhat-release to RHEL 8 to bypass the installer's
+                      OS check (RHEL 8/9 binaries are identical). Default method.
+    --parexport_rpm   Installs the vendor RPM via dnf. Use on RHEL 8 where the RPM
+                      is compatible without any OS override. Mutually exclusive with
+                      --parexport_bin.
+
   Modes:
-    parexport  Install PARExport via the vendor .bin installer.
+    parexport  Install PARExport only.
                PARExport binds to 0.0.0.0:PORT but that port is NOT opened
                in firewalld — HAProxy proxies internally via localhost.
     haproxy    Install/configure HAProxy TLSv1.3 frontend only.
@@ -75,11 +82,10 @@ usage() {
 
   Notes:
     - Must be run as root
-    - Target OS: RHEL 9
+    - Target OS: RHEL 8 or RHEL 9
     - PARExport install dir, OS user, and systemd service are fixed by the vendor package (/opt/par-export, parexport)
     - TLS is terminated at HAProxy; PARExport itself runs plain HTTP
     - PARExport port is NOT opened in firewalld (HAProxy proxies internally)
-    - The .bin installer is non-interactive; install/yes prompts are auto-answered
     - SELinux port labels are applied when SELinux is enforcing
     - Run this script independently on each VM
 
@@ -88,7 +94,7 @@ usage() {
     Run this script (--mode=all) on every VM in the pool:
 
     $0 --mode=all \\
-       --parexport_bin=par-export-4.x.x-xxxxxxxx.bin \\
+       --parexport_bin=par-export-4.x.x-xxxxxxxx.bin \\   # or --parexport_rpm=<file>
        --cert_file=parexport.crt --key_file=parexport.key \\
        --media_dir=/glide/media
 
@@ -131,10 +137,10 @@ parse_args() {
       --key_file=*)           KEY_FILE="${1#*=}" ;;
       --media_dir=*)          MEDIA_DIR="${1#*=}" ;;
       --parexport_bin=*)      PAREXPORT_BIN="${1#*=}" ;;
+      --parexport_rpm=*)      PAREXPORT_RPM="${1#*=}" ;;
       --haproxy_bind_port=*)  HAPROXY_BIND_PORT="${1#*=}" ;;
       --haproxy_stat_port=*)  HAPROXY_STAT_PORT="${1#*=}" ;;
       --skip_deps)            SKIP_DEPS="true" ;;
-      --skip_install)         SKIP_INSTALL="true" ;;
       --skip_selinux)         SKIP_SELINUX="true" ;;
       --help)                 usage; exit 0 ;;
       *) die "Unknown argument: $1. Run $0 --help for usage." ;;
@@ -150,10 +156,16 @@ validate_args() {
   esac
 
   if [ "${MODE}" = "parexport" ] || [ "${MODE}" = "all" ]; then
-    if [ "${SKIP_INSTALL}" = "false" ]; then
-      [ -n "${PAREXPORT_BIN}" ] || die "--parexport_bin is required for mode=${MODE} (or pass --skip_install if PARExport RPM is already installed)."
+    [ -n "${PAREXPORT_BIN}" ] || [ -n "${PAREXPORT_RPM}" ] \
+      || die "Either --parexport_bin or --parexport_rpm is required for mode=${MODE}."
+    [ -z "${PAREXPORT_BIN}" ] || [ -z "${PAREXPORT_RPM}" ] \
+      || die "--parexport_bin and --parexport_rpm are mutually exclusive."
+    if [ -n "${PAREXPORT_BIN}" ]; then
       [ -f "${MEDIA_DIR}/${PAREXPORT_BIN}" ] \
         || die "PARExport installer not found: ${MEDIA_DIR}/${PAREXPORT_BIN}"
+    else
+      [ -f "${MEDIA_DIR}/${PAREXPORT_RPM}" ] \
+        || die "PARExport RPM not found: ${MEDIA_DIR}/${PAREXPORT_RPM}"
     fi
   fi
 
@@ -218,19 +230,30 @@ create_user_group() {
 
 # ── STEP 3: INSTALL PAREXPORT ─────────────────────────────────────────────────
 install_parexport() {
-  if [ "${SKIP_INSTALL}" = "true" ]; then
-    log "Skipping .bin installation (--skip_install set; assumes PARExport RPM already installed)."
-    [ -f "${INSTALL_DIR}/par-export-server" ] \
-      || die "PARExport binary not found at ${INSTALL_DIR}/par-export-server. Verify the RPM was installed correctly."
-    return 0
-  fi
-
   if [ -f "${INSTALL_DIR}/par-export-server" ]; then
     log "PARExport already installed at ${INSTALL_DIR}, skipping."
     return 0
   fi
 
-  log "Installing PARExport from ${PAREXPORT_BIN}..."
+  if [ -n "${PAREXPORT_RPM}" ]; then
+    _install_parexport_rpm
+  else
+    _install_parexport_bin
+  fi
+
+  [ -f "${INSTALL_DIR}/par-export-server" ] \
+    || die "PARExport binary not found at ${INSTALL_DIR}/par-export-server after installation."
+
+  log "PARExport installed at ${INSTALL_DIR}."
+}
+
+_install_parexport_rpm() {
+  log "Installing PARExport from RPM: ${PAREXPORT_RPM}..."
+  dnf install -y "${MEDIA_DIR}/${PAREXPORT_RPM}"
+}
+
+_install_parexport_bin() {
+  log "Installing PARExport from .bin: ${PAREXPORT_BIN}..."
 
   local bin_path="${MEDIA_DIR}/${PAREXPORT_BIN}"
   chmod +x "${bin_path}"
@@ -255,11 +278,6 @@ install_parexport() {
 
   [ "${install_rc}" -eq 0 ] \
     || die "PARExport installer exited with code ${install_rc}. Check output above."
-
-  [ -f "${INSTALL_DIR}/par-export-server" ] \
-    || die "PARExport binary not found at ${INSTALL_DIR}/par-export-server after installation. Check installer output above."
-
-  log "PARExport installed at ${INSTALL_DIR}."
 }
 
 # ── STEP 4: CONFIGURE PAREXPORT ───────────────────────────────────────────────
@@ -564,10 +582,10 @@ main() {
   log "  Host            : $(hostname -f)"
   log "  Mode            : ${MODE}"
   if [ "${MODE}" = "parexport" ] || [ "${MODE}" = "all" ]; then
-    if [ "${SKIP_INSTALL}" = "true" ]; then
-      log "  Installer       : (skipped — RPM pre-installed)"
+    if [ -n "${PAREXPORT_RPM}" ]; then
+      log "  Installer       : ${PAREXPORT_RPM} (RPM)"
     else
-      log "  Installer       : ${PAREXPORT_BIN}"
+      log "  Installer       : ${PAREXPORT_BIN} (.bin)"
     fi
     log "  Install dir     : ${INSTALL_DIR}"
     log "  PARExport port  : 127.0.0.1:${PAR_PORT} (HTTP, TLS terminated at HAProxy)"
