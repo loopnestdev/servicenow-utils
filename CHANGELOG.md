@@ -433,6 +433,34 @@ All notable changes to this project will be documented in this file.
     (each skipped with a log message if the table does not exist in the
     deployed release)
 
+## [v0.1.24] — 2026-06-25
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `parexport-deploy.sh` — new deployment script for ServiceNow PARExport Server
+  on RHEL 9. Supports three modes (`--mode=parexport|haproxy|all`; default: `all`):
+
+  - **parexport** — drives the vendor `.bin` installer non-interactively (pipes
+    `Install/yes/yes` to auto-answer prompts), configures
+    `/etc/sysconfig/parexport` with `HTTPS_ENABLED=false` (TLS terminated at
+    HAProxy), and starts the `parexport` systemd service. Idempotent: skips
+    re-installation if the `par-export-server` binary is already present.
+  - **haproxy** — installs and configures HAProxy as a TLSv1.3-only frontend
+    (KB1632909: HSTS, `X-Forwarded-*` headers, `Location` rewrite, secure cookie
+    flags, `leastconn` balance, `PAREXPORTID` session cookie). Health check via
+    `GET /ping` (expects `PONG`).
+  - **all** — both of the above on the same VM; intended for GCP Layer-4 TCP load
+    balancer topology where each VM runs HAProxy `:443` → `127.0.0.1:PAR_PORT`.
+
+  Key parameters: `--parexport_bin`, `--install_dir`, `--port`, `--media_dir`,
+  `--cert_file`, `--key_file`, `--haproxy_bind_port`, `--haproxy_stat_port`,
+  `--par_user`, `--par_svc`, `--skip_deps`, `--skip_selinux`.
+
+  PARExport port is not opened in firewalld; HAProxy proxies to `localhost:PORT`
+  internally. Configure ServiceNow via `glide.par.export.host`.
+
 ## [v0.1.23] — 2026-06-24
 
 ### Fixed
