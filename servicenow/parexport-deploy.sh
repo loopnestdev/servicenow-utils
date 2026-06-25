@@ -20,7 +20,12 @@
 set -euo pipefail
 
 # ── DEFAULTS ──────────────────────────────────────────────────────────────────
-INSTALL_DIR="/glide/par-export"          # PARExport installation directory
+# Fixed by the vendor package — not configurable
+readonly INSTALL_DIR="/opt/par-export"
+readonly PAR_USER="parexport"
+readonly PAR_GROUP="parexport"
+readonly PAR_SVC="parexport"
+
 PAR_PORT="9999"                        # PARExport HTTP port
 CERT_FILE=""
 KEY_FILE=""
@@ -28,9 +33,6 @@ HAPROXY_BIND_PORT="443"
 HAPROXY_STAT_PORT="8000"
 BACKEND_NODES=""                       # resolved to 127.0.0.1:PAR_PORT in validate_args
 MODE="all"
-PAR_USER="parexport"
-PAR_GROUP="parexport"
-PAR_SVC="parexport"
 MEDIA_DIR="/glide/media"
 PAREXPORT_BIN=""                       # .bin installer filename in MEDIA_DIR
 SKIP_DEPS="false"
@@ -51,13 +53,10 @@ usage() {
 
   Optional:
     --mode=<parexport|haproxy|all>  Deployment mode                      (default: all)
-    --install_dir=<path>            PARExport installation directory      (default: /glide/par-export)
     --port=<port>                   PARExport HTTP port                   (default: 9999)
     --media_dir=<path>              Directory containing installer        (default: /glide/media)
     --haproxy_bind_port=<port>      HAProxy HTTPS frontend port           (default: 443)
     --haproxy_stat_port=<port>      HAProxy stats page port (loopback)    (default: 8000)
-    --par_user=<name>               OS user and group that owns PARExport (default: parexport)
-    --par_svc=<name>                PARExport systemd service name        (default: parexport)
     --skip_deps                     Skip dnf package installation         (default: false)
                                     Use in offline environments where packages are pre-installed
     --skip_install                  Skip .bin installer; assume PARExport RPM already installed
@@ -77,7 +76,7 @@ usage() {
   Notes:
     - Must be run as root
     - Target OS: RHEL 9
-    - PARExport is installed by the vendor .bin installer into <install_dir>
+    - PARExport install dir, OS user, and systemd service are fixed by the vendor package (/opt/par-export, parexport)
     - TLS is terminated at HAProxy; PARExport itself runs plain HTTP
     - PARExport port is NOT opened in firewalld (HAProxy proxies internally)
     - The .bin installer is non-interactive; install/yes prompts are auto-answered
@@ -127,7 +126,6 @@ parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --mode=*)               MODE="${1#*=}" ;;
-      --install_dir=*)        INSTALL_DIR="${1#*=}" ;;
       --port=*)               PAR_PORT="${1#*=}" ;;
       --cert_file=*)          CERT_FILE="${1#*=}" ;;
       --key_file=*)           KEY_FILE="${1#*=}" ;;
@@ -135,8 +133,6 @@ parse_args() {
       --parexport_bin=*)      PAREXPORT_BIN="${1#*=}" ;;
       --haproxy_bind_port=*)  HAPROXY_BIND_PORT="${1#*=}" ;;
       --haproxy_stat_port=*)  HAPROXY_STAT_PORT="${1#*=}" ;;
-      --par_user=*)           PAR_USER="${1#*=}"; PAR_GROUP="${1#*=}" ;;
-      --par_svc=*)            PAR_SVC="${1#*=}" ;;
       --skip_deps)            SKIP_DEPS="true" ;;
       --skip_install)         SKIP_INSTALL="true" ;;
       --skip_selinux)         SKIP_SELINUX="true" ;;

@@ -532,3 +532,14 @@ All notable changes to this project will be documented in this file.
   and verifies only that `${INSTALL_DIR}/par-export-server` exists; all other
   steps (configure, SELinux, firewall, HAProxy, enable, verify) run as normal.
   `--parexport_bin` is not required when `--skip_install` is passed.
+
+## [v0.1.29] — 2026-06-25
+
+### Changed
+
+#### ServiceNow (`servicenow/`)
+
+- `parexport-deploy.sh` — `INSTALL_DIR`, `PAR_USER`/`PAR_GROUP`, and `PAR_SVC`
+  are now hardcoded constants (`/opt/par-export`, `parexport`, `parexport`)
+  matching the values imposed by the vendor RPM package. The flags
+  `--install_dir`, `--par_user`, and `--par_svc` have been removed.
