@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy ServiceNow PARExport Server on RHEL 8 or RHEL 9.
+# Deploy ServiceNow PARExport Server on RHEL 8.
 # Supports three modes:
 #   parexport  – install PARExport via vendor .bin or RPM (systemd, host-level)
 #   haproxy    – install/configure HAProxy (TLSv1.3) only
@@ -90,7 +90,7 @@ usage() {
 
   Notes:
     - Must be run as root
-    - Target OS: RHEL 8 or RHEL 9
+    - Target OS: RHEL 8
     - PARExport install dir, OS user, and systemd service are fixed by the vendor package (/opt/par-export, parexport)
     - SELinux port labels are applied when SELinux is enforcing
     - Run this script independently on each VM
@@ -187,6 +187,10 @@ validate_args() {
     *) die "--tls_termination must be 'haproxy' or 'parexport'." ;;
   esac
 
+  if [ "${TLS_TERMINATION}" = "parexport" ] && [ "${MODE}" != "parexport" ]; then
+    die "--tls_termination=parexport requires --mode=parexport (HAProxy is not used in this topology)."
+  fi
+
   # Apply smart default: port 443 when PARExport itself terminates TLS
   if [ "${PAR_PORT_SET}" = "false" ] && [ "${TLS_TERMINATION}" = "parexport" ]; then
     PAR_PORT="443"
@@ -215,7 +219,7 @@ install_deps() {
     return 0
   fi
 
-  log "Installing OS dependencies for RHEL 9..."
+  log "Installing OS dependencies for 8..."
 
   dnf install -y curl
 
