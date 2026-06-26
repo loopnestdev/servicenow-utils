@@ -472,7 +472,7 @@ global
 
   # Restrict to TLS 1.3 only (KB1632909); ECDHE-only ciphers as TLS 1.2 fallback
   ssl-default-bind-options   no-sslv3 no-tlsv10 no-tlsv11 no-tlsv12
-  ssl-default-bind-ciphers   ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305
+  ssl-default-bind-ciphers   ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
 
 defaults
   mode                  http
