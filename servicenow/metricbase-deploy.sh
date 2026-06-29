@@ -3,7 +3,9 @@
 #
 # Installs a single MetricBase node under /glide/clotho/<name>_<port>/,
 # optionally configures HA replication with a peer node, creates initial
-# admin and backup users, and schedules a daily full-backup cron job.
+# admin and backup users, and schedules backup cron jobs:
+#   - Weekly full backup  (Sunday 02:00)
+#   - Differential backup every N hours (configurable, default 6)
 #
 # Reference KB: KB0677442 – MetricBase Installation Instructions
 set -euo pipefail
@@ -12,7 +14,9 @@ set -euo pipefail
 INSTALL_DIR="/glide/clotho"
 JAVA_DIR="/glide/java"
 MEDIA_DIR="/glide/media"
-BACKUP_DIR="/glide/backup"
+FULL_BACKUP_DIR="/glide/backup/metricbase/full"
+DIFF_BACKUP_DIR="/glide/backup/metricbase/diff"
+DIFF_INTERVAL="6"
 DIST_ZIP=""
 JDK_TARBALL=""
 NODE_NAME=""
@@ -50,7 +54,9 @@ usage() {
     --install_dir=<path>            Base MetricBase install directory  (default: /glide/clotho)
     --media_dir=<path>              Directory containing installer and JDK
                                                                        (default: /glide/media)
-    --backup_dir=<path>             Backup destination directory        (default: /glide/backup)
+    --full_backup_dir=<path>         Full backup destination             (default: /glide/backup/metricbase/full)
+    --diff_backup_dir=<path>         Differential backup destination     (default: /glide/backup/metricbase/diff)
+    --diff_interval=<hours>          Differential backup interval        (default: 6)
     --node_name=<name>              MetricBase server name              (default: hostname -s)
     --port=<port>                   MetricBase listener port            (default: 3400)
     --mb_admin_user=<user>          Admin username                      (default: admin)
@@ -67,6 +73,7 @@ usage() {
   Prerequisites in --media_dir (default: /glide/media):
     - clotho-dist-<version>-dist.zip    MetricBase distribution zip
     - <jdk_tarball>                     JDK 17 tarball (e.g. jdk-17.0.x_linux-x64_bin.tar.gz)
+    - metricbase-backup.sh              Backup script (installed to ${INSTALL_DIR}/bin/)
 
   Notes:
     - Must be run as root
@@ -117,7 +124,9 @@ parse_args() {
     case "$1" in
       --install_dir=*)           INSTALL_DIR="${1#*=}" ;;
       --media_dir=*)             MEDIA_DIR="${1#*=}" ;;
-      --backup_dir=*)            BACKUP_DIR="${1#*=}" ;;
+      --full_backup_dir=*)       FULL_BACKUP_DIR="${1#*=}" ;;
+      --diff_backup_dir=*)       DIFF_BACKUP_DIR="${1#*=}" ;;
+      --diff_interval=*)         DIFF_INTERVAL="${1#*=}" ;;
       --dist_zip=*)              DIST_ZIP="${1#*=}" ;;
       --jdk_tarball=*)           JDK_TARBALL="${1#*=}" ;;
       --node_name=*)             NODE_NAME="${1#*=}" ;;
@@ -146,8 +155,9 @@ validate_args() {
   [ -n "${MB_ADMIN_PASSWORD}" ] || die "--mb_admin_password is required."
   [ -n "${MB_BACKUP_PASSWORD}" ] || die "--mb_backup_password is required."
 
-  [ -f "${MEDIA_DIR}/${DIST_ZIP}" ]    || die "Distribution zip not found: ${MEDIA_DIR}/${DIST_ZIP}"
-  [ -f "${MEDIA_DIR}/${JDK_TARBALL}" ] || die "JDK tarball not found: ${MEDIA_DIR}/${JDK_TARBALL}"
+  [ -f "${MEDIA_DIR}/${DIST_ZIP}" ]            || die "Distribution zip not found: ${MEDIA_DIR}/${DIST_ZIP}"
+  [ -f "${MEDIA_DIR}/${JDK_TARBALL}" ]         || die "JDK tarball not found: ${MEDIA_DIR}/${JDK_TARBALL}"
+  [ -f "${MEDIA_DIR}/metricbase-backup.sh" ]   || die "metricbase-backup.sh not found: ${MEDIA_DIR}/metricbase-backup.sh"
 
   if [ -n "${PEER_HOST}" ]; then
     [ -n "${REPLICATION_PASSWORD}" ] \
@@ -386,33 +396,44 @@ configure_selinux() {
   fi
 }
 
-# ── STEP 11: BACKUP CRON ──────────────────────────────────────────────────────
+# ── STEP 11: BACKUP SETUP ────────────────────────────────────────────────────
 setup_backup() {
   local password_file="${NODE_DIR}/conf/mb_backup_password.txt"
+  local backup_script="${INSTALL_DIR}/bin/metricbase-backup.sh"
   local cron_file="/etc/cron.d/metricbase"
 
   log "Writing backup password file: ${password_file}..."
   echo "${MB_BACKUP_PASSWORD}" > "${password_file}"
   chmod 640 "${password_file}"
-  chown "${CLOTHO_USER}:${CLOTHO_USER}" "${password_file}"
 
-  mkdir -p "${BACKUP_DIR}"
-  chown "${CLOTHO_USER}:${CLOTHO_USER}" "${BACKUP_DIR}"
+  log "Installing metricbase-backup.sh to ${INSTALL_DIR}/bin/..."
+  mkdir -p "${INSTALL_DIR}/bin"
+  cp "${MEDIA_DIR}/metricbase-backup.sh" "${backup_script}"
+  chmod 755 "${backup_script}"
 
-  log "Configuring daily backup cron..."
+  mkdir -p "${FULL_BACKUP_DIR}" "${DIFF_BACKUP_DIR}"
+
+  # Derive the cron hour expression for differential interval (e.g. 6 → "0,6,12,18")
+  local diff_hours=""
+  local h=0
+  while [ "${h}" -lt 24 ]; do
+    diff_hours="${diff_hours:+${diff_hours},}${h}"
+    h=$(( h + DIFF_INTERVAL ))
+  done
+
+  log "Configuring backup crons (full: weekly Sunday 02:00 | diff: every ${DIFF_INTERVAL}h)..."
   cat > "${cron_file}" <<EOF
 MAILTO=""
 
-# Daily full MetricBase backup — runs as ${CLOTHO_USER}
-0 2 * * * ${CLOTHO_USER} ${JAVA_DIR}/bin/java -jar ${NODE_DIR}/bin/clotho-backup-${MB_VERSION}.jar \\
-  -data ${NODE_DIR}/data/ \\
-  -pfile ${password_file} \\
-  -port ${PORT} \\
-  > ${BACKUP_DIR}/clotho_full_\$(date +\%Y\%m\%d).tar 2>&1
+# Weekly full MetricBase backup — Sunday at 02:00
+0 2 * * 0 ${CLOTHO_USER} ${backup_script} --node_dir=${NODE_DIR} --port=${PORT} --password_file=${password_file} --type=full --full_backup_dir=${FULL_BACKUP_DIR} --diff_backup_dir=${DIFF_BACKUP_DIR} --log_dir=${INSTALL_DIR}/logs >> ${INSTALL_DIR}/logs/metricbase-backup.log 2>&1
+
+# Differential MetricBase backup — every ${DIFF_INTERVAL} hours
+0 ${diff_hours} * * * ${CLOTHO_USER} ${backup_script} --node_dir=${NODE_DIR} --port=${PORT} --password_file=${password_file} --type=diff --full_backup_dir=${FULL_BACKUP_DIR} --diff_backup_dir=${DIFF_BACKUP_DIR} --log_dir=${INSTALL_DIR}/logs >> ${INSTALL_DIR}/logs/metricbase-backup.log 2>&1
 EOF
 
   chmod 644 "${cron_file}"
-  log "Backup cron configured: ${cron_file}"
+  log "Backup crons configured: ${cron_file}"
 }
 
 # ── STEP 12: FILE OWNERSHIP ───────────────────────────────────────────────────
@@ -473,6 +494,8 @@ main() {
   else
     log "  HA peer     : none (standalone)"
   fi
+  log "  Full backup : ${FULL_BACKUP_DIR} (weekly Sunday 02:00)"
+  log "  Diff backup : ${DIFF_BACKUP_DIR} (every ${DIFF_INTERVAL}h)"
   log "============================================================"
 
   [ "${SKIP_DEPS}" = "true" ] && log "Skipping OS dependency installation (--skip_deps)." || install_deps
