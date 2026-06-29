@@ -184,7 +184,7 @@ install_deps() {
   fi
 
   log "Installing OS dependencies..."
-  dnf install -y curl glibc libgcc
+  dnf install -y curl glibc glibc.i686 libgcc
   log "OS dependencies installed."
 }
 
