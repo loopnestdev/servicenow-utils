@@ -1,7 +1,8 @@
 #!/bin/bash
 # Deploy ServiceNow MetricBase (Clotho) on RHEL 9 / Rocky Linux 9.
 #
-# Installs MetricBase directly under --install_dir (default: /glide/clotho).
+# The installer creates <install_dir>/<node_name>_<port>/ (e.g. /glide/clotho/mydb_3400/).
+# All MetricBase files (startup.sh, conf/, data/, logs/) live under that node directory.
 # Optionally configures HA replication with a peer node, creates initial
 # admin and backup users, and schedules backup cron jobs:
 #   - Weekly full backup  (Sunday 02:00)
@@ -36,6 +37,7 @@ SKIP_SELINUX="false"
 
 # Derived — set in validate_args
 MB_VERSION=""
+NODE_DIR=""
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
 usage() {
@@ -76,7 +78,7 @@ usage() {
   Notes:
     - Must be run as root
     - Target OS: RHEL 9 / Rocky Linux 9
-    - MetricBase is installed directly under --install_dir (e.g. /glide/clotho/startup.sh)
+    - Node directory: <install_dir>/<node_name>_<port>/ (e.g. /glide/clotho/mydb_3400/)
     - For HA, run this script on both nodes pointing --peer_host at the other
 
   Example (standalone):
@@ -169,7 +171,9 @@ validate_args() {
   [ "${MB_VERSION}" = "${DIST_ZIP}" ] \
     && die "Cannot parse version from dist zip name: ${DIST_ZIP}. Expected: clotho-dist-<version>.zip"
 
-  log "Resolved: version=${MB_VERSION}, install_dir=${INSTALL_DIR}"
+  NODE_DIR="${INSTALL_DIR}/${NODE_NAME}_${PORT}"
+
+  log "Resolved: version=${MB_VERSION}, node_dir=${NODE_DIR}"
 }
 
 # ── STEP 1: OS DEPENDENCIES ───────────────────────────────────────────────────
@@ -229,29 +233,31 @@ create_user_group() {
 
 # ── STEP 4: INSTALL METRICBASE ────────────────────────────────────────────────
 install_metricbase() {
-  if [ -f "${INSTALL_DIR}/startup.sh" ]; then
-    log "MetricBase already installed at ${INSTALL_DIR}, skipping installation."
+  if [ -f "${NODE_DIR}/startup.sh" ]; then
+    log "MetricBase already installed at ${NODE_DIR}, skipping installation."
     return 0
   fi
 
   log "Installing MetricBase ${MB_VERSION} as node '${NODE_NAME}' on port ${PORT}..."
 
-  # KB instructs: cd to the install dir, then run java -jar from there
+  mkdir -p "${INSTALL_DIR}"
+
+  # KB instructs: cd to the parent install dir; installer creates <node_name>_<port>/ inside it
   ( cd "${INSTALL_DIR}" && \
     "${JAVA_DIR}/bin/java" -jar "${MEDIA_DIR}/${DIST_ZIP}" \
       -m install \
       -n "${NODE_NAME}" \
       -p "${PORT}" )
 
-  [ -f "${INSTALL_DIR}/startup.sh" ] \
-    || die "Installation failed: startup.sh not found at ${INSTALL_DIR}."
+  [ -f "${NODE_DIR}/startup.sh" ] \
+    || die "Installation failed: startup.sh not found at ${NODE_DIR}."
 
-  log "MetricBase installed at ${INSTALL_DIR}."
+  log "MetricBase installed at ${NODE_DIR}."
 }
 
 # ── STEP 5: FIX WRAPPER.CONF ──────────────────────────────────────────────────
 fix_wrapper_conf() {
-  local wrapper_conf="${INSTALL_DIR}/conf/wrapper.conf"
+  local wrapper_conf="${NODE_DIR}/conf/wrapper.conf"
 
   [ -f "${wrapper_conf}" ] || { log "wrapper.conf not found, skipping fix."; return 0; }
 
@@ -266,7 +272,7 @@ fix_wrapper_conf() {
 
 # ── STEP 6: CONFIGURE JVM HEAP ────────────────────────────────────────────────
 configure_heap() {
-  local overrides_dir="${INSTALL_DIR}/conf/overrides.d"
+  local overrides_dir="${NODE_DIR}/conf/overrides.d"
   local mem_props="${overrides_dir}/92-memory.properties"
 
   mkdir -p "${overrides_dir}"
@@ -286,8 +292,8 @@ EOF
 # ── STEP 7: CREATE METRICBASE USERS ───────────────────────────────────────────
 create_mb_user() {
   local username="$1" password="$2" roles="$3"
-  local passwd_file="${INSTALL_DIR}/conf/passwd"
-  local add_user_script="${INSTALL_DIR}/scripts/add_app_user.sh"
+  local passwd_file="${NODE_DIR}/conf/passwd"
+  local add_user_script="${NODE_DIR}/scripts/add_app_user.sh"
 
   [ -f "${add_user_script}" ] || die "add_app_user.sh not found: ${add_user_script}"
 
@@ -314,7 +320,7 @@ create_metricbase_users() {
 configure_ha() {
   [ -n "${PEER_HOST}" ] || return 0
 
-  local overrides_dir="${INSTALL_DIR}/conf/overrides.d"
+  local overrides_dir="${NODE_DIR}/conf/overrides.d"
   local repl_props="${overrides_dir}/97-replication.properties"
 
   mkdir -p "${overrides_dir}"
@@ -347,8 +353,8 @@ After=syslog.target network.target
 [Service]
 Environment=JAVA_HOME=${JAVA_DIR}
 Type=forking
-ExecStart=${INSTALL_DIR}/startup.sh
-ExecStop=${INSTALL_DIR}/shutdown.sh
+ExecStart=${NODE_DIR}/startup.sh
+ExecStop=${NODE_DIR}/shutdown.sh
 User=${CLOTHO_USER}
 Group=${CLOTHO_USER}
 UMask=0007
@@ -388,16 +394,16 @@ configure_selinux() {
 
 # ── STEP 11: BACKUP SETUP ─────────────────────────────────────────────────────
 setup_backup() {
-  local password_file="${INSTALL_DIR}/conf/mb_backup_password.txt"
-  local backup_script="${INSTALL_DIR}/bin/metricbase-backup.sh"
+  local password_file="${NODE_DIR}/conf/mb_backup_password.txt"
+  local backup_script="${NODE_DIR}/bin/metricbase-backup.sh"
   local cron_file="/etc/cron.d/metricbase"
 
   log "Writing backup password file: ${password_file}..."
   echo "${MB_BACKUP_PASSWORD}" > "${password_file}"
   chmod 640 "${password_file}"
 
-  log "Installing metricbase-backup.sh to ${INSTALL_DIR}/bin/..."
-  mkdir -p "${INSTALL_DIR}/bin"
+  log "Installing metricbase-backup.sh to ${NODE_DIR}/bin/..."
+  mkdir -p "${NODE_DIR}/bin"
   cp "${MEDIA_DIR}/metricbase-backup.sh" "${backup_script}"
   chmod 755 "${backup_script}"
 
@@ -416,10 +422,10 @@ setup_backup() {
 MAILTO=""
 
 # Weekly full MetricBase backup — Sunday at 02:00
-0 2 * * 0 ${CLOTHO_USER} ${backup_script} --node_dir=${INSTALL_DIR} --port=${PORT} --password_file=${password_file} --type=full --full_backup_dir=${FULL_BACKUP_DIR} --diff_backup_dir=${DIFF_BACKUP_DIR} --log_dir=${INSTALL_DIR}/logs >> ${INSTALL_DIR}/logs/metricbase-backup.log 2>&1
+0 2 * * 0 ${CLOTHO_USER} ${backup_script} --node_dir=${NODE_DIR} --port=${PORT} --password_file=${password_file} --type=full --full_backup_dir=${FULL_BACKUP_DIR} --diff_backup_dir=${DIFF_BACKUP_DIR} --log_dir=${NODE_DIR}/logs >> ${NODE_DIR}/logs/metricbase-backup.log 2>&1
 
 # Differential MetricBase backup — every ${DIFF_INTERVAL} hours
-0 ${diff_hours} * * * ${CLOTHO_USER} ${backup_script} --node_dir=${INSTALL_DIR} --port=${PORT} --password_file=${password_file} --type=diff --full_backup_dir=${FULL_BACKUP_DIR} --diff_backup_dir=${DIFF_BACKUP_DIR} --log_dir=${INSTALL_DIR}/logs >> ${INSTALL_DIR}/logs/metricbase-backup.log 2>&1
+0 ${diff_hours} * * * ${CLOTHO_USER} ${backup_script} --node_dir=${NODE_DIR} --port=${PORT} --password_file=${password_file} --type=diff --full_backup_dir=${FULL_BACKUP_DIR} --diff_backup_dir=${DIFF_BACKUP_DIR} --log_dir=${NODE_DIR}/logs >> ${NODE_DIR}/logs/metricbase-backup.log 2>&1
 EOF
 
   chmod 644 "${cron_file}"
@@ -428,9 +434,9 @@ EOF
 
 # ── STEP 12: FILE OWNERSHIP ───────────────────────────────────────────────────
 set_ownership() {
-  log "Setting ownership of ${INSTALL_DIR} to ${CLOTHO_USER}:${CLOTHO_USER}..."
-  chown -R "${CLOTHO_USER}:${CLOTHO_USER}" "${INSTALL_DIR}"
-  chmod -R 750 "${INSTALL_DIR}"
+  log "Setting ownership of ${NODE_DIR} to ${CLOTHO_USER}:${CLOTHO_USER}..."
+  chown -R "${CLOTHO_USER}:${CLOTHO_USER}" "${NODE_DIR}"
+  chmod -R 750 "${NODE_DIR}"
   log "Ownership set."
 }
 
@@ -476,7 +482,7 @@ main() {
   log "  Version     : ${MB_VERSION}"
   log "  Node name   : ${NODE_NAME}"
   log "  Port        : ${PORT}"
-  log "  Install dir : ${INSTALL_DIR}"
+  log "  Node dir    : ${NODE_DIR}"
   log "  JDK         : ${JDK_TARBALL}"
   log "  Heap        : ${HEAP_SIZE}G"
   if [ -n "${PEER_HOST}" ]; then
@@ -508,7 +514,7 @@ main() {
   log "  MetricBase URL : http://$(hostname -f):${PORT}/"
   log "  Admin info     : http://$(hostname -f):${PORT}/admin/info"
   log "  Service        : systemctl status metricbase"
-  log "  Logs           : ${INSTALL_DIR}/logs/"
+  log "  Logs           : ${NODE_DIR}/logs/"
   if [ -n "${PEER_HOST}" ]; then
     log "  HA status      : http://$(hostname -f):${PORT}/replication"
   fi
