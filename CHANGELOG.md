@@ -653,3 +653,20 @@ All notable changes to this project will be documented in this file.
   to `127.0.0.1:<port>`. rsyslog (`30-haproxy.conf`) and logrotate
   (`haproxy-metricbase`) are configured automatically. The deployment summary
   reports the `https://` URL when HAProxy is active.
+
+## [v0.2.2] — 2026-06-30
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `metricbase-deploy.sh` — improved idempotency on re-runs:
+  - `configure_heap`: skips rewrite when heap is already set to the requested size.
+  - `configure_ha`: skips rewrite when replication properties already match the peer.
+  - `write_systemd_service`: writes to a temp file and diffs against the existing
+    unit; only replaces and sets `SYSTEMD_UNIT_CHANGED` when content differs.
+  - `enable_start_service`: if the service is already running, restarts only when
+    the unit file changed; otherwise skips the restart entirely.
+  - `setup_backup`: skips writing the backup password file if it already exists;
+    skips copying `metricbase-backup.sh` when the installed copy is identical to
+    the source.

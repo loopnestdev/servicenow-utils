@@ -40,9 +40,10 @@ HAPROXY_STAT_PORT="8000"
 SKIP_DEPS="false"
 SKIP_SELINUX="false"
 
-# Derived — set in validate_args
+# Derived — set in validate_args / runtime
 MB_VERSION=""
 NODE_DIR=""
+SYSTEMD_UNIT_CHANGED="false"
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
 usage() {
@@ -310,6 +311,12 @@ configure_heap() {
   local mem_props="${overrides_dir}/92-memory.properties"
 
   mkdir -p "${overrides_dir}"
+
+  if [ -f "${mem_props}" ] && grep -q "\-Xmx${HEAP_SIZE}G" "${mem_props}"; then
+    log "Heap already set to ${HEAP_SIZE}G, skipping."
+    return 0
+  fi
+
   log "Setting max JVM heap to ${HEAP_SIZE}G..."
 
   if [ -f "${mem_props}" ]; then
@@ -358,6 +365,12 @@ configure_ha() {
   local repl_props="${overrides_dir}/97-replication.properties"
 
   mkdir -p "${overrides_dir}"
+
+  if [ -f "${repl_props}" ] && grep -q "clotho.replication.master=http://${PEER_HOST}:${PEER_PORT}" "${repl_props}"; then
+    log "HA replication already configured for ${PEER_HOST}:${PEER_PORT}, skipping."
+    return 0
+  fi
+
   log "Configuring HA replication: peer=${PEER_HOST}:${PEER_PORT}..."
 
   cat > "${repl_props}" <<EOF
@@ -376,10 +389,9 @@ EOF
 write_systemd_service() {
   local svc="metricbase"
   local svc_file="/etc/systemd/system/${svc}.service"
+  local tmp_file; tmp_file=$(mktemp)
 
-  log "Writing systemd service: ${svc}..."
-
-  cat > "${svc_file}" <<EOF
+  cat > "${tmp_file}" <<EOF
 [Unit]
 Description=ServiceNow MetricBase (Clotho) - ${NODE_NAME}:${PORT}
 After=syslog.target network.target
@@ -401,7 +413,15 @@ RestartSec=15
 WantedBy=multi-user.target
 EOF
 
+  if [ -f "${svc_file}" ] && diff -q "${svc_file}" "${tmp_file}" >/dev/null 2>&1; then
+    log "Systemd service unchanged, skipping."
+    rm -f "${tmp_file}"
+    return 0
+  fi
+
+  mv "${tmp_file}" "${svc_file}"
   log "Systemd service written: ${svc_file}"
+  SYSTEMD_UNIT_CHANGED="true"
 }
 
 # ── STEP 10: SELINUX PORT LABEL ───────────────────────────────────────────────
@@ -439,14 +459,22 @@ setup_backup() {
   local backup_script="${NODE_DIR}/bin/metricbase-backup.sh"
   local cron_file="/etc/cron.d/metricbase"
 
-  log "Writing backup password file: ${password_file}..."
-  echo "${MB_BACKUP_PASSWORD}" > "${password_file}"
-  chmod 640 "${password_file}"
+  if [ ! -f "${password_file}" ]; then
+    log "Writing backup password file: ${password_file}..."
+    echo "${MB_BACKUP_PASSWORD}" > "${password_file}"
+    chmod 640 "${password_file}"
+  else
+    log "Backup password file already exists, skipping."
+  fi
 
-  log "Installing metricbase-backup.sh to ${NODE_DIR}/bin/..."
   mkdir -p "${NODE_DIR}/bin"
-  cp "${MEDIA_DIR}/metricbase-backup.sh" "${backup_script}"
-  chmod 755 "${backup_script}"
+  if ! diff -q "${MEDIA_DIR}/metricbase-backup.sh" "${backup_script}" >/dev/null 2>&1; then
+    log "Installing metricbase-backup.sh to ${NODE_DIR}/bin/..."
+    cp "${MEDIA_DIR}/metricbase-backup.sh" "${backup_script}"
+    chmod 755 "${backup_script}"
+  else
+    log "metricbase-backup.sh already up to date, skipping."
+  fi
 
   mkdir -p "${FULL_BACKUP_DIR}" "${DIFF_BACKUP_DIR}"
 
@@ -485,11 +513,22 @@ set_ownership() {
 enable_start_service() {
   local svc="metricbase"
 
-  log "Enabling and starting ${svc} service..."
   systemctl daemon-reload
   systemctl enable "${svc}"
-  systemctl start  "${svc}"
-  log "${svc} service started."
+
+  if systemctl is-active --quiet "${svc}"; then
+    if [ "${SYSTEMD_UNIT_CHANGED}" = "true" ]; then
+      log "Restarting ${svc} service (unit file changed)..."
+      systemctl restart "${svc}"
+      log "${svc} service restarted."
+    else
+      log "${svc} service already running, no unit change — skipping restart."
+    fi
+  else
+    log "Starting ${svc} service..."
+    systemctl start "${svc}"
+    log "${svc} service started."
+  fi
 }
 
 # ── STEP 14: VERIFY ───────────────────────────────────────────────────────────
