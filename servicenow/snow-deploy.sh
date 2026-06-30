@@ -34,6 +34,7 @@ SKIP_KMF="false"
 KMF_PASSWORD="changeit"
 KMF_ALIAS="256bitkey"
 DB_SSL_CA=""
+SNC_LB_URL=""
 
 # ── USAGE ─────────────────────────────────────────────────────────────────────
 usage() {
@@ -81,6 +82,9 @@ usage() {
     --skip_kmf                    Skip KMF keystore configuration
     --kmf_password=<password>     KMF keystore and key entry password    (default: changeit)
     --kmf_alias=<alias>           KMF key alias inside the keystore      (default: 256bitkey)
+    --snc_lb_url=<hostname>       Public LB hostname for the SNC cluster. When set, writes
+                                  glide.proxy.host = https://<hostname> into glide.properties
+                                  per instance. Required for correct URL generation behind a LB.
     --help                        Show this help
 
   Prerequisites in --media_dir (default: /data/snow_media):
@@ -174,6 +178,7 @@ parse_args() {
       --skip_kmf)           SKIP_KMF="true" ;;
       --kmf_password=*)     KMF_PASSWORD="${1#*=}" ;;
       --kmf_alias=*)        KMF_ALIAS="${1#*=}" ;;
+      --snc_lb_url=*)       SNC_LB_URL="${1#*=}" ;;
       --help)               usage; exit 0 ;;
       *) die "Unknown argument: $1. Run $0 --help for usage." ;;
     esac
@@ -440,6 +445,10 @@ glide.self.monitor.fast_server_stats.interval = 86400000
 glide.usageanalytics.central_instance=https://disabled.service-now.com
 glide.ua.downloader.central_instance=
 EOF
+
+  if [ -n "${SNC_LB_URL}" ]; then
+    echo "glide.proxy.host = https://${SNC_LB_URL}" >> "${inst_path}/conf/glide.properties"
+  fi
 }
 
 write_jdk_overrides() {

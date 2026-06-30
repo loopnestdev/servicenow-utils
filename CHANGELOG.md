@@ -449,6 +449,17 @@ All notable changes to this project will be documented in this file.
 - `snow-deploy.sh` — `--haproxy_statport` default changed from `14567` to `8000`
 - `snap-deploy.sh` — `--haproxy_stat_port` default changed from `9998` to `8000`
 
+## [v0.1.24] — 2026-06-30
+
+### Added
+
+#### ServiceNow (`servicenow/`)
+
+- `snow-deploy.sh` — new `--snc_lb_url=<hostname>` argument. When set, appends
+  `glide.proxy.host = https://<hostname>` to each instance's `glide.properties`.
+  Required for correct URL generation (redirects, email links, attachments) when
+  SNC nodes sit behind a load balancer.
+
 ## [v0.1.24] — 2026-06-25
 
 ### Added
