@@ -670,3 +670,28 @@ All notable changes to this project will be documented in this file.
   - `setup_backup`: skips writing the backup password file if it already exists;
     skips copying `metricbase-backup.sh` when the installed copy is identical to
     the source.
+
+## [v0.2.3] — 2026-06-30
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `snap-deploy.sh` — idempotency improvements:
+  - `configure_tomcat`: guarded the `sed` on `server.xml` with a grep check so it
+    is skipped when already configured correctly. Two-pass sed (strip existing
+    `address=` attribute, then re-apply) handles re-runs where a previous invocation
+    already modified the Connector stanza, including port changes. Unit file is
+    written to a temp file and compared with `cmp -s`; only replaced when content
+    differs.
+  - `configure_clamd` / `configure_freshclam`: track content changes via md5sum
+    (config files) and `cmp -s` (unit/override files); set `_CLAMAV_SVC_CHANGED`
+    only when files actually change.
+  - `enable_tomcat` / `enable_clamav`: restart services only when the corresponding
+    `_*_CHANGED` flag is set or the service is not already active.
+- `parexport-deploy.sh` — idempotency improvements:
+  - `configure_parexport`: sysconfig changes are tracked via md5sum before/after
+    the key-value loop; systemd drop-in is written to a temp file and compared with
+    `cmp -s`. `_PAR_SVC_CHANGED` is set only when files actually change.
+  - `enable_parexport`: restarts the service only when `_PAR_SVC_CHANGED` is true
+    or the service is not already active.

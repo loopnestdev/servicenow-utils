@@ -27,6 +27,7 @@ readonly PAR_SVC="parexport"
 
 PAR_PORT="9999"                        # PARExport HTTP port (443 when tls_termination=parexport)
 PAR_PORT_SET="false"                   # true when --port is explicitly passed
+_PAR_SVC_CHANGED="false"              # set by configure_parexport; used by enable_parexport
 CERT_FILE=""
 KEY_FILE=""
 HAPROXY_BIND_PORT="443"
@@ -336,6 +337,7 @@ configure_parexport() {
     kvs+=("KEY_PATH=${INSTALL_DIR}/ssl/parexport.key")
   fi
 
+  local _sysconfig_md5_before; _sysconfig_md5_before=$(md5sum "${sysconfig}" 2>/dev/null | awk '{print $1}')
   for kv in "${kvs[@]}"; do
     local key="${kv%%=*}" val="${kv#*=}"
     if grep -q "^${key}[[:space:]]*=" "${sysconfig}"; then
@@ -344,6 +346,8 @@ configure_parexport() {
       echo "${key}=${val}" >> "${sysconfig}"
     fi
   done
+  local _sysconfig_md5_after; _sysconfig_md5_after=$(md5sum "${sysconfig}" | awk '{print $1}')
+  [ "${_sysconfig_md5_before}" != "${_sysconfig_md5_after}" ] && _PAR_SVC_CHANGED="true"
 
   log "sysconfig configured (HTTPS_ENABLED=${https_enabled}; TLS termination: ${TLS_TERMINATION})."
 
@@ -353,21 +357,29 @@ configure_parexport() {
   # parexport user can bind to e.g. 443 without running as root.
   local override_dir="/etc/systemd/system/${PAR_SVC}.service.d"
   mkdir -p "${override_dir}"
+  local _override_tmp; _override_tmp=$(mktemp)
   if [ "${PAR_PORT}" -lt 1024 ]; then
-    cat > "${override_dir}/port.conf" <<OVERRIDE
+    cat > "${_override_tmp}" <<OVERRIDE
 [Service]
 ExecStart=
 ExecStart=${INSTALL_DIR}/par-export-server --production --port ${PAR_PORT}
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 OVERRIDE
   else
-    cat > "${override_dir}/port.conf" <<OVERRIDE
+    cat > "${_override_tmp}" <<OVERRIDE
 [Service]
 ExecStart=
 ExecStart=${INSTALL_DIR}/par-export-server --production --port ${PAR_PORT}
 OVERRIDE
   fi
-  log "Systemd drop-in written: ${override_dir}/port.conf (--port ${PAR_PORT})."
+  if ! cmp -s "${_override_tmp}" "${override_dir}/port.conf" 2>/dev/null; then
+    cp "${_override_tmp}" "${override_dir}/port.conf"
+    _PAR_SVC_CHANGED="true"
+    log "Systemd drop-in written: ${override_dir}/port.conf (--port ${PAR_PORT})."
+  else
+    log "Systemd drop-in unchanged: ${override_dir}/port.conf."
+  fi
+  rm -f "${_override_tmp}"
 }
 
 # ── STEP 5: SELINUX PORT LABELS ───────────────────────────────────────────────
@@ -441,8 +453,12 @@ enable_parexport() {
   log "Enabling and starting ${PAR_SVC} service..."
   systemctl daemon-reload
   systemctl enable "${PAR_SVC}"
-  systemctl restart "${PAR_SVC}"
-  log "${PAR_SVC} service started."
+  if [ "${_PAR_SVC_CHANGED}" = "true" ] || ! systemctl is-active --quiet "${PAR_SVC}" 2>/dev/null; then
+    systemctl restart "${PAR_SVC}"
+    log "${PAR_SVC} service started."
+  else
+    log "${PAR_SVC} already running and config unchanged — skipping restart."
+  fi
 }
 
 verify_parexport() {
