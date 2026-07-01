@@ -789,3 +789,14 @@ All notable changes to this project will be documented in this file.
   - `setup_https_properties()` removes `03-truststore.properties` if present
     from prior manual testing
   - `set_ownership()` explicitly sets mode 640 on both keystore files
+
+## [v0.3.3] — 2026-07-01
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `metricbase-deploy.sh` — `mb_backup_password.txt` was being created as root
+  because `setup_backup` ran after `set_ownership`. Moved `setup_backup` before
+  `set_ownership` so the recursive `chown` covers the password file and backup
+  script.

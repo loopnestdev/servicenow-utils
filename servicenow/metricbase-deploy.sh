@@ -739,9 +739,9 @@ main() {
   create_metricbase_users
   configure_ha
   write_systemd_service
+  setup_backup
   set_ownership
   configure_selinux
-  setup_backup
   enable_start_service
   verify_service
 
