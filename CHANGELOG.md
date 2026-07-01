@@ -717,3 +717,39 @@ All notable changes to this project will be documented in this file.
   when the OpenSSL `serial` file contains a hex value (e.g. `100A`). Bash arithmetic
   `$(( ))` only handles decimal; replaced with `printf '%X\n' $(( 16#${serial} + 1 ))`
   to correctly parse and write the serial back as uppercase hex.
+
+## [v0.2.3] — 2026-07-01
+
+### Fixed
+
+#### ServiceNow (`servicenow/`)
+
+- `metricbase-deploy.sh` — guard against HA replication being routed through
+  HAProxy. MetricBase peer-to-peer replication uses plain HTTP directly on the
+  MetricBase port; it must bypass the HAProxy TLS frontend. `validate_args` now
+  fails early with a clear error if `--peer_port` matches `--haproxy_bind_port`
+  when `--enable_haproxy` is set. Updated `--peer_port` usage text and Notes
+  section to make this constraint explicit.
+
+## [v0.3.0] — 2026-07-01
+
+### Changed
+
+#### ServiceNow (`servicenow/`)
+
+- `metricbase-deploy.sh` — replaced optional HAProxy TLS frontend with native
+  HTTPS via MetricBase's built-in Tomcat SSL connector:
+  - `--cert_file`, `--key_file`, and `--keystore_pass` are now required
+    parameters; SSL is always enabled.
+  - New `--ssl_port` parameter (default `443`) sets the HTTPS listener port.
+  - New `setup_ssl()` step converts the PEM cert+key to PKCS12 (via `openssl`),
+    then to a BCFKS keystore (via `keytool` with the BouncyCastle FIPS provider
+    discovered dynamically under `<node_dir>/lib/jsw/bc-fips-*.jar`), writes
+    `conf/overrides.d/cacerts.bcfks`, and generates `conf/overrides.d/02-https.properties`
+    with TLSv1.3, BCFKS keystore, and alias configuration.
+  - `write_systemd_service()` adds `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+    when `--ssl_port` is a privileged port (< 1024).
+  - HA replication URL updated to `https://` on `--peer_port` (defaults to
+    `--ssl_port`); plain HTTP replication removed.
+  - `configure_selinux()` now labels both the HTTP port and the SSL port.
+  - All HAProxy functions, parameters, and dependencies removed.
