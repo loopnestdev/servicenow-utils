@@ -842,3 +842,13 @@ All notable changes to this project will be documented in this file.
   - Polls `https://127.0.0.1:<port>/v1/stats` for up to 5 minutes after start
   - All generated keystores and override properties files are placed under
     `conf/overrides.d/` — no files written directly to `conf/`
+
+## [v0.3.4] — 2026-07-02
+
+### Added
+
+#### MetricBase (`metricbase/`)
+
+- `metricbase-deploy.sh` — new `--tls_curves` parameter (default:
+  `secp384r1,secp521r1,prime256v1`) passes `-Djdk.tls.namedGroups` via
+  `JAVA_TOOL_OPTIONS` in the systemd unit to restrict TLS named curves.

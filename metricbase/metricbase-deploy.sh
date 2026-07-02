@@ -37,6 +37,7 @@ KEY_FILE=""
 CA_CERT_FILE=""
 KEYSTORE_PASS=""
 TRUSTSTORE_PASS="changeit"
+TLS_CURVES="secp384r1,secp521r1,prime256v1"
 PEER_HOST=""
 PEER_PORT=""
 REPLICATION_USER="repuser"
@@ -83,6 +84,7 @@ usage() {
     --replication_user=<user>       Replication account username           (default: repuser)
     --replication_password=<pw>     Replication account password           (required if --peer_host set)
     --skip_deps                     Skip OS dependency installation
+    --tls_curves=<curves>           Comma-separated TLS named curves   (default: secp384r1,secp521r1,prime256v1)
     --skip_selinux                  Skip SELinux port labeling
     --help                          Show this help
 
@@ -176,6 +178,7 @@ parse_args() {
       --replication_user=*)      REPLICATION_USER="${1#*=}" ;;
       --replication_password=*)  REPLICATION_PASSWORD="${1#*=}" ;;
       --skip_deps)               SKIP_DEPS="true" ;;
+      --tls_curves=*)            TLS_CURVES="${1#*=}" ;;
       --skip_selinux)            SKIP_SELINUX="true" ;;
       --help)                    usage; exit 0 ;;
       *) die "Unknown argument: $1. Run $0 --help for usage." ;;
@@ -532,7 +535,7 @@ After=syslog.target network.target
 
 [Service]
 Environment=JAVA_HOME=${JAVA_DIR}
-Environment="JAVA_TOOL_OPTIONS=-Djavax.net.ssl.keyStore=${NODE_DIR}/conf/overrides.d/server.bcfks -Djavax.net.ssl.keyStoreType=BCFKS -Djavax.net.ssl.keyStorePassword=${KEYSTORE_PASS} -Djavax.net.ssl.trustStore=${NODE_DIR}/conf/overrides.d/cacerts.bcfks -Djavax.net.ssl.trustStoreType=BCFKS -Djavax.net.ssl.trustStorePassword=${TRUSTSTORE_PASS}"
+Environment="JAVA_TOOL_OPTIONS=-Djavax.net.ssl.keyStore=${NODE_DIR}/conf/overrides.d/server.bcfks -Djavax.net.ssl.keyStoreType=BCFKS -Djavax.net.ssl.keyStorePassword=${KEYSTORE_PASS} -Djavax.net.ssl.trustStore=${NODE_DIR}/conf/overrides.d/cacerts.bcfks -Djavax.net.ssl.trustStoreType=BCFKS -Djavax.net.ssl.trustStorePassword=${TRUSTSTORE_PASS} -Djdk.tls.namedGroups=${TLS_CURVES}"
 Type=forking
 ExecStart=${NODE_DIR}/startup.sh
 ExecStop=${NODE_DIR}/shutdown.sh
