@@ -63,7 +63,7 @@ usage() {
     --media_dir=<path>            Directory containing installer and JDK  (default: /glide/media)
     --instance_name=<name>        AIS instance/orbit name                 (default: aisnode)
     --port=<port>                 AIS listener port                       (default: 8000)
-    --node_id=<uuid>              Unique AIS node GUID; auto-generated if omitted
+    --node_id=<id>                Unique AIS node identifier              (default: hostname -s)
     --ml_prediction_url=<url>     Base URL of the ML Predictor            (default: http://127.0.0.1:5000)
     --heap_size=<GB>              Max JVM heap in GB                      (default: 5)
     --appnode_cert_file=<file>    App node PEM bundle (cert + private key in one file) in media_dir
@@ -199,15 +199,12 @@ validate_args() {
 
   [ -z "${PEER_PORT}" ] && PEER_PORT="${PORT}"
 
-  # Auto-generate node_id if not supplied
+  # Default node_id to the short hostname — unique per server, stable across
+  # re-runs, and human-readable in /v1/stats metrics. Override with --node_id
+  # if a specific value (e.g. a UUID) is required by your environment.
   if [ -z "${NODE_ID}" ]; then
-    if command -v uuidgen >/dev/null 2>&1; then
-      NODE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
-    else
-      NODE_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || \
-        od -x /dev/urandom | head -1 | awk '{print $2$3"-"$4"-"$5"-"$6"-"$7$8$9}')
-    fi
-    log "Auto-generated node_id: ${NODE_ID}"
+    NODE_ID=$(hostname -s)
+    log "Defaulting node_id to hostname: ${NODE_ID}"
   fi
 
   # Parse version from zip filename (supports aisearch-X.Y.Z.W.zip or similar)
@@ -313,7 +310,13 @@ install_aisearch() {
 
   mkdir -p "${INSTALL_DIR}"
 
-  # The orbit installer creates <instance_name>_<port>/ in CWD
+  # The orbit installer creates <instance_name>_<port>/ in CWD.
+  # Some AIS versions exit non-zero due to a bug in the installer's own temp
+  # directory cleanup (RuntimeException: refusing to delete directory that
+  # doesn't look like a temporary directory). The installation files are written
+  # correctly before the cleanup runs, so we capture the exit code separately
+  # and treat startup.sh presence as the authoritative success indicator.
+  local installer_rc=0
   ( cd "${INSTALL_DIR}" && \
     "${JAVA_DIR}/bin/java" \
       -Ddist-upgrade.deploy.java=false \
@@ -323,10 +326,15 @@ install_aisearch() {
       --instance-name "${INSTANCE_NAME}" \
       --port "${PORT}" \
       --extra-properties \
-      "system.property.startup.aisearch.node.id=${NODE_ID},system.property.startup.ml.prediction_service.url=${ML_PREDICTION_URL}" )
+      "system.property.startup.aisearch.node.id=${NODE_ID},system.property.startup.ml.prediction_service.url=${ML_PREDICTION_URL}" ) || installer_rc=$?
 
-  [ -f "${NODE_DIR}/startup.sh" ] \
-    || die "Installation failed: startup.sh not found at ${NODE_DIR}."
+  if [ ! -f "${NODE_DIR}/startup.sh" ]; then
+    die "Installation failed: startup.sh not found at ${NODE_DIR} (installer exit code: ${installer_rc})."
+  fi
+
+  if [ "${installer_rc}" -ne 0 ]; then
+    log "  Warning: installer exited ${installer_rc} (known temp-dir cleanup bug in some AIS versions); installation files verified present."
+  fi
 
   log "AI Search installed at ${NODE_DIR}."
 }

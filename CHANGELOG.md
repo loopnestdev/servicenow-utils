@@ -882,3 +882,27 @@ All notable changes to this project will be documented in this file.
 
 - `.gitignore` — added installation and self-hosted documentation files to the
   ignore list.
+
+## [v0.4.2] — 2026-07-02
+
+### Fixed
+
+#### AI Search (`aisearch/`)
+
+- `aisearch-deploy.sh` — orbit installer exits non-zero on some AIS versions
+  due to a bug in its own temp directory cleanup
+  (`RuntimeException: refusing to delete directory that doesn't look like a
+  temporary directory`). The installation files are written correctly before
+  cleanup runs. The script now captures the installer exit code separately
+  (tolerating non-zero) and uses `startup.sh` presence as the authoritative
+  success indicator; a warning is logged when the exit code is non-zero so the
+  condition remains visible.
+
+### Changed
+
+#### AI Search (`aisearch/`)
+
+- `aisearch-deploy.sh` — `aisearch.node.id` now defaults to `hostname -s`
+  (the server's short hostname) instead of an auto-generated UUID. The hostname
+  is stable across re-runs on the same server and human-readable in `/v1/stats`
+  metrics. Override with `--node_id` when a specific value is required.
